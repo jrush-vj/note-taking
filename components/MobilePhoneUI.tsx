@@ -63,8 +63,9 @@ export function MobilePhoneUI({
   };
 
   return (
-    <div className="h-screen w-screen bg-black text-white">
-      <div className="h-full pb-14">
+    <div className="min-h-screen w-full bg-black text-white">
+      <div className="mx-auto w-full max-w-[560px] h-screen relative">
+        <div className="h-full pb-14">
         {activeScreen === "notebooks" ? (
           <NotebooksScreen
             allCount={allCount}
@@ -90,16 +91,13 @@ export function MobilePhoneUI({
           />
         )}
 
-        {/* FAB only on To-dos */}
-        {activeScreen === "todos" && (
-          <Fab
-            ariaLabel="Add"
-            onClick={() => {
-              // handled inside TodosScreen via custom event; keep minimal here.
-              window.dispatchEvent(new CustomEvent("mobile-todo-add"));
-            }}
-          />
+        {/* Floating create note button (notes tab) */}
+        {activeScreen === "notes" && (
+          <FixedRightFab ariaLabel="New note" onClick={onCreateNote}>
+            <Plus className="h-6 w-6" />
+          </FixedRightFab>
         )}
+        </div>
       </div>
 
       <BottomNav
@@ -113,19 +111,6 @@ export function MobilePhoneUI({
           goTodos();
         }}
       />
-
-      {/* Floating create note button (notes tab) */}
-      {activeScreen === "notes" && (
-        <div className="fixed bottom-16 right-4">
-          <button
-            className="h-14 w-14 rounded-full bg-yellow-400 text-black shadow-lg grid place-items-center transition-transform duration-200 ease-out active:scale-95"
-            onClick={onCreateNote}
-            aria-label="New note"
-          >
-            <Plus className="h-6 w-6" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -299,14 +284,10 @@ function TodosScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
   const open = useMemo(() => items.filter((i) => !i.done), [items]);
   const done = useMemo(() => items.filter((i) => i.done), [items]);
 
-  React.useEffect(() => {
-    const handler = () => {
-      const id = String(Date.now());
-      setItems((prev) => [{ id, task: "New task", reward: "", done: false }, ...prev]);
-    };
-    window.addEventListener("mobile-todo-add", handler);
-    return () => window.removeEventListener("mobile-todo-add", handler);
-  }, []);
+  const addTodo = () => {
+    const id = String(Date.now());
+    setItems((prev) => [{ id, task: "New task", reward: "", done: false }, ...prev]);
+  };
 
   return (
     <div className="h-full">
@@ -350,6 +331,10 @@ function TodosScreen({ onOpenMenu }: { onOpenMenu: () => void }) {
           </div>
         </div>
       </main>
+
+      <FixedRightFab ariaLabel="Add" onClick={addTodo}>
+        <Plus className="h-6 w-6" />
+      </FixedRightFab>
     </div>
   );
 }
@@ -364,7 +349,7 @@ const BottomNav = memo(function BottomNav({
   onTodos: () => void;
 }) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 h-14 bg-black px-6 flex items-center justify-around">
+    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[560px] h-14 bg-black px-6 flex items-center justify-around">
       <BottomTabButton active={active === "notes"} label="Notes" onClick={onNotes} icon={<FileText className="h-6 w-6" />} />
       <BottomTabButton active={active === "todos"} label="To-dos" onClick={onTodos} icon={<CheckSquare className="h-6 w-6" />} />
     </nav>
@@ -559,15 +544,27 @@ function IconButton({
   );
 }
 
-function Fab({ ariaLabel, onClick }: { ariaLabel: string; onClick: () => void }) {
+function FixedRightFab({
+  ariaLabel,
+  onClick,
+  children,
+}: {
+  ariaLabel: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <button
-      aria-label={ariaLabel}
-      onClick={onClick}
-      className="fixed bottom-16 right-4 h-14 w-14 rounded-full bg-yellow-400 text-black shadow-lg grid place-items-center transition-transform duration-200 ease-out active:scale-95"
-    >
-      <Plus className="h-6 w-6" />
-    </button>
+    <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[560px] px-4 pointer-events-none">
+      <div className="flex justify-end pointer-events-auto">
+        <button
+          aria-label={ariaLabel}
+          onClick={onClick}
+          className="h-14 w-14 rounded-full bg-yellow-400 text-black shadow-lg grid place-items-center transition-transform duration-200 ease-out active:scale-95"
+        >
+          {children}
+        </button>
+      </div>
+    </div>
   );
 }
 

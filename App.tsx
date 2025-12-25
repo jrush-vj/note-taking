@@ -58,7 +58,6 @@ import {
   importAesKeyFromBase64,
 } from "./lib/crypto";
 import { useZkNotes } from "./hooks/useZkNotes";
-import { useMediaQuery } from "./hooks/useMediaQuery";
 import { NoteSearchService } from "./lib/searchService";
 import {
   saveNotesLocally,
@@ -104,8 +103,6 @@ export default function App() {
   // Theme
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-
-  const isMobile = useMediaQuery("(max-width: 768px)");
 
   // Fast-create UX
   const [isCreatingNote, setIsCreatingNote] = useState(false);
@@ -351,7 +348,6 @@ export default function App() {
       updatedAt: Date.now(),
     };
     setSelectedNote(placeholder);
-    if (isMobile) setMobileTab("editor");
 
     try {
       let newNote: Note;
@@ -589,331 +585,25 @@ export default function App() {
     );
   }
 
-  if (isMobile) {
-    return (
-      <MobilePhoneUI
-        notes={notes}
-        notebooks={notebooks}
-        selectedNotebookId={selectedNotebook}
-        onSelectNotebook={(id) => {
-          setActivePanel("notes");
-          setSelectedNotebook(id);
-          setSelectedTag(null);
-          setSelectedNote(null);
-        }}
-        onSelectNote={(note) => {
-          setActivePanel("notes");
-          setSelectedNote(note);
-        }}
-        onCreateNote={() => {
-          void handleCreateNote();
-        }}
-      />
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50 dark-amoled:bg-black text-gray-900 dark-amoled:text-white transition-colors duration-300">
-      <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
-        {isSidebarOpen && (
-          <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">Folders</h2>
-              <Button variant="ghost" size="sm" onClick={handleCreateNotebook} className="h-8 w-8 p-0">
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  !selectedNotebook && activePanel === "notes"
-                    ? "bg-blue-100 dark-amoled:bg-blue-950"
-                    : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("notes");
-                  setSelectedNotebook(null);
-                  setSelectedTag(null);
-                  setSearchFilters({ query: "", archived: false });
-                }}
-              >
-                <Notebook className="h-4 w-4" />
-                <span>All Notes</span>
-              </button>
-
-              {notebooks.map((notebook) => (
-                <div key={notebook.id} className="flex items-center gap-1">
-                  <button
-                    className={`flex-1 text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                      selectedNotebook === notebook.id && activePanel === "notes"
-                        ? "bg-blue-100 dark-amoled:bg-blue-950"
-                        : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                    }`}
-                    onClick={() => {
-                      setActivePanel("notes");
-                      setSelectedNotebook(notebook.id);
-                      setSelectedTag(null);
-                    }}
-                  >
-                    <Notebook className="h-4 w-4" />
-                    <span className="truncate">{notebook.name}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNotebook(notebook);
-                    }}
-                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wide opacity-70 mb-2">Tags</h3>
-              <div className="space-y-1">
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    className={`w-full text-left px-3 py-2 rounded-md text-sm hover-lift ${
-                      selectedTag === tag.id && activePanel === "notes"
-                        ? "bg-blue-100 dark-amoled:bg-blue-950"
-                        : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                    }`}
-                    onClick={() => {
-                      setActivePanel("notes");
-                      setSelectedTag(tag.id);
-                    }}
-                  >
-                    #{tag.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-auto pt-3 border-t border-gray-200 dark-amoled:border-gray-900 space-y-1">
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  activePanel === "account" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("account");
-                  setSelectedNote(null);
-                }}
-              >
-                <Settings className="h-4 w-4" />
-                Account
-              </button>
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  activePanel === "security" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("security");
-                  setSelectedNote(null);
-                }}
-              >
-                <Shield className="h-4 w-4" />
-                Security
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover:bg-gray-100 dark-amoled:hover:bg-gray-900 hover-lift"
-                onClick={cycleTheme}
-              >
-                {theme === "dark-amoled" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                {theme === "dark-amoled" ? "Light" : theme === "light" ? "System" : "Dark"}
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 dark-amoled:hover:bg-red-950/30 hover-lift"
-                onClick={signOut}
-              >
-                Sign out
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Notes List */}
-        <div className="w-full md:w-80 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
-          <div className="p-3 border-b border-gray-200 dark-amoled:border-gray-900">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setIsSidebarOpen(!isSidebarOpen);
-                  }}
-                  className="md:hidden h-8 w-8 p-0"
-                >
-                  <Menu className="h-5 w-5" />
-                </Button>
-                <h1 className="text-base font-semibold">
-                  {activePanel === "notes"
-                    ? selectedNotebook
-                      ? notebooks.find((n) => n.id === selectedNotebook)?.name || "Notes"
-                      : selectedTag
-                      ? `#${tags.find((t) => t.id === selectedTag)?.name}`
-                      : "All Notes"
-                    : activePanel === "account"
-                    ? "Account"
-                    : "Security"}
-                </h1>
-              </div>
-              {activePanel === "notes" && (
-                <div className="flex items-center gap-1">
-                  <Button onClick={() => setIsTemplateManagerOpen(true)} size="sm" variant="ghost" title="New from template">
-                    <Sparkles className="h-4 w-4" />
-                  </Button>
-                  <Button onClick={() => handleCreateNote()} size="sm">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {activePanel === "notes" && (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search notes..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-white dark-amoled:bg-gray-950"
-                />
-              </div>
-            )}
-          </div>
-
-          <NotesList
-            activePanel={activePanel}
-            filteredNotes={filteredNotes}
-            isCreatingNote={isCreatingNote}
-            selectedNoteId={selectedNote?.id ?? null}
-            onSelect={(note) => {
-              setActivePanel("notes");
-              setSelectedNote(note);
-            }}
-          />
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 glass flex flex-col overflow-hidden">
-          {activePanel === "account" ? (
-            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
-              <h2 className="text-xl font-semibold">Account Settings</h2>
-              <div className="rounded-md border border-gray-200 dark-amoled:border-gray-800 p-4 glass">
-                <div className="text-sm">Email</div>
-                <div className="font-medium break-all">{userEmail}</div>
-                <div className="mt-3 text-sm">User ID</div>
-                <div className="font-mono text-xs break-all">{userId}</div>
-              </div>
-              <div className="space-y-2">
-                <Button onClick={() => setIsExportImportOpen(true)} variant="outline" className="w-full justify-start">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export & Import
-                </Button>
-                <Button onClick={handleCreateBackup} variant="outline" className="w-full justify-start">
-                  <Archive className="h-4 w-4 mr-2" />
-                  Create Local Backup
-                </Button>
-              </div>
-            </div>
-          ) : activePanel === "security" ? (
-            <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
-              <h2 className="text-xl font-semibold">Security</h2>
-              <div className="rounded-md border border-gray-200 dark-amoled:border-gray-800 p-4 glass">
-                <div className="text-sm font-medium">Encryption</div>
-                <p className="mt-1 text-sm text-gray-600 dark-amoled:text-gray-400">
-                  Notes are encrypted in the browser using your passphrase before they are stored in Supabase.
-                </p>
-                <Button
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => {
-                    setEncryptionKey(null);
-                    setPassphrase("");
-                    setPassphraseError(null);
-                  }}
-                >
-                  Lock now
-                </Button>
-              </div>
-            </div>
-          ) : selectedNoteFull ? (
-            <NoteEditor
-              note={selectedNoteFull}
-              notebooks={notebooks}
-              tags={tags}
-              onSave={handleSaveNote}
-              onTogglePinned={() => handleTogglePinned(selectedNoteFull)}
-              onToggleStarred={() => handleToggleStarred(selectedNoteFull)}
-              onToggleArchived={() => handleToggleArchived(selectedNoteFull)}
-              onDelete={() => handleDeleteNote(selectedNoteFull)}
-              onCancel={() => setSelectedNote(null)}
-              addTag={addTag}
-              isCreating={isCreatingNote || selectedNoteFull.id === "__creating__"}
-            />
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark-amoled:text-gray-400">
-              <FileText className="h-16 w-16 mb-4 opacity-50" />
-              <p>Select a note or create a new one</p>
-              <p className="text-sm mt-2">
-                Press <kbd className="px-2 py-1 bg-gray-100 dark-amoled:bg-gray-800 rounded">Cmd/Ctrl+K</kbd> for commands
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Modals */}
-        <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commands} />
-
-        <TemplateManager
-          isOpen={isTemplateManagerOpen}
-          onClose={() => setIsTemplateManagerOpen(false)}
-          templates={templates}
-          onCreateFromTemplate={handleCreateNote}
-          onCreateTemplate={async (template) => {
-            await addNote(template.notebookId);
-          }}
-        />
-
-        <ExportImportModal
-          isOpen={isExportImportOpen}
-          onClose={() => setIsExportImportOpen(false)}
-          notes={notes}
-          notebooks={notebooks}
-          tags={tags}
-          selectedNote={selectedNoteFull}
-          onImport={handleImport}
-        />
-
-        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-          <AlertDialogContent className="glass">
-            <AlertDialogHeader>
-              <AlertDialogTitle>{noteToDelete ? "Delete Note" : "Delete Notebook"}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {noteToDelete
-                  ? "Are you sure you want to delete this note? This action cannot be undone."
-                  : "Are you sure you want to delete this notebook? All notes in this notebook will be moved to \"All Notes\"."}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setIsDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700 text-white">
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </div>
+    <MobilePhoneUI
+      notes={notes}
+      notebooks={notebooks}
+      selectedNotebookId={selectedNotebook}
+      onSelectNotebook={(id) => {
+        setActivePanel("notes");
+        setSelectedNotebook(id);
+        setSelectedTag(null);
+        setSelectedNote(null);
+      }}
+      onSelectNote={(note) => {
+        setActivePanel("notes");
+        setSelectedNote(note);
+      }}
+      onCreateNote={() => {
+        void handleCreateNote();
+      }}
+    />
   );
 }
 
