@@ -116,7 +116,21 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
     setTags(nextTags);
     setNotes(nextNotes);
     setIsReady(true);
-  }, [encryptionKey, userId]);
+
+    // One-time best-effort cleanup: remove encrypted objects in Storage that no longer exist in DB.
+    // This is safe because we only ever store under objects/<uuid>.md.
+    if (accessToken) {
+      const liveObjectIds = objects.map((o) => o.id);
+      void fetch("/api/storage/cleanup", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ liveObjectIds }),
+      });
+    }
+  }, [accessToken, encryptionKey, userId]);
 
   useEffect(() => {
     setIsReady(false);
@@ -144,6 +158,27 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(text || "Storage upload failed");
+      }
+    },
+    [accessToken]
+  );
+
+  const deleteEncryptedObjectFromStorage = useCallback(
+    async (objectId: string) => {
+      if (!accessToken) return;
+      try {
+        const res = await fetch("/api/storage/delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ objectId }),
+        });
+        // Best-effort: ignore failures so the UI doesn't break.
+        if (!res.ok) return;
+      } catch {
+        return;
       }
     },
     [accessToken]
@@ -329,8 +364,11 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
 
       const res = await supabase.from("encrypted_objects").delete().eq("id", id).eq("user_id", userId);
       if (res.error) throw res.error;
+
+      // Best-effort: also remove the encrypted blob from Storage.
+      void deleteEncryptedObjectFromStorage(id);
     },
-    [userId]
+    [deleteEncryptedObjectFromStorage, userId]
   );
 
   const deleteNotebook = useCallback(
@@ -340,10 +378,13 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       const res = await supabase.from("encrypted_objects").delete().eq("id", id).eq("user_id", userId);
       if (res.error) throw res.error;
 
+      // If a notebook was ever mirrored to Storage, clean it up as well.
+      void deleteEncryptedObjectFromStorage(id);
+
       setNotebooks((prev) => prev.filter((n) => n.id !== id));
       setNotes((prev) => prev.map((note) => (note.notebookId === id ? { ...note, notebookId: undefined } : note)));
     },
-    [userId]
+    [deleteEncryptedObjectFromStorage, userId]
   );
 
   return {
