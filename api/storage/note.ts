@@ -52,12 +52,12 @@ export default async function handler(req: Req, res: Res) {
     const bucket = `user-${userId}`;
 
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const noteId = String(body?.noteId ?? "");
+    const objectId = String(body?.objectId ?? "");
     const nonceBase64 = String(body?.nonceBase64 ?? "");
     const ciphertextBase64 = String(body?.ciphertextBase64 ?? "");
 
-    if (!noteId || !nonceBase64 || !ciphertextBase64) {
-      return json(res, 400, { error: "Missing noteId/nonceBase64/ciphertextBase64" });
+    if (!objectId || !nonceBase64 || !ciphertextBase64) {
+      return json(res, 400, { error: "Missing objectId/nonceBase64/ciphertextBase64" });
     }
 
     // 1) Ensure per-user bucket exists.
@@ -71,9 +71,10 @@ export default async function handler(req: Req, res: Res) {
     }
 
     // 2) Upload encrypted markdown file.
-    const objectPath = `notes/${noteId}.md`;
+    const objectPath = `objects/${objectId}.md`;
     const markdown =
-      `<!-- encrypted-note:v1\n` +
+      `<!-- encrypted-object:v1\n` +
+      `id:${objectId}\n` +
       `nonce:${nonceBase64}\n` +
       `ciphertext:${ciphertextBase64}\n` +
       `-->\n`;
@@ -87,17 +88,6 @@ export default async function handler(req: Req, res: Res) {
 
     if (uploadRes.error) {
       return json(res, 500, { error: `Storage upload failed: ${uploadRes.error.message}` });
-    }
-
-    // 3) Persist bucket/object pointers back to the row.
-    const updateRes = await supabaseAdmin
-      .from("notes")
-      .update({ bucket_id: bucket, object_path: objectPath })
-      .eq("id", noteId)
-      .eq("user_id", userId);
-
-    if (updateRes.error) {
-      return json(res, 500, { error: `Failed to update note pointers: ${updateRes.error.message}` });
     }
 
     return json(res, 200, { bucket_id: bucket, object_path: objectPath });

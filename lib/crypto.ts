@@ -15,6 +15,43 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
+export function generateMasterKeyBase64(): string {
+  // 32 bytes -> AES-256
+  const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+  return bytesToBase64(keyBytes);
+}
+
+export async function importAesKeyFromBase64(masterKeyBase64: string): Promise<CryptoKey> {
+  const keyBytes = base64ToBytes(masterKeyBase64);
+  return crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(keyBytes),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+type EncryptedMasterKeyV1 = {
+  v: 1;
+  nonce: string;
+  ciphertext: string;
+};
+
+export async function encryptMasterKey(passphraseKey: CryptoKey, masterKeyBase64: string): Promise<string> {
+  const { nonceBase64, ciphertextBase64 } = await encryptString(passphraseKey, masterKeyBase64);
+  const payload: EncryptedMasterKeyV1 = { v: 1, nonce: nonceBase64, ciphertext: ciphertextBase64 };
+  return JSON.stringify(payload);
+}
+
+export async function decryptMasterKey(passphraseKey: CryptoKey, encryptedMasterKey: string): Promise<string> {
+  const payload = JSON.parse(encryptedMasterKey) as Partial<EncryptedMasterKeyV1>;
+  if (payload?.v !== 1 || !payload.nonce || !payload.ciphertext) {
+    throw new Error("Invalid encrypted_master_key format");
+  }
+  return decryptString(passphraseKey, payload.nonce, payload.ciphertext);
+}
+
 export async function deriveKeyFromPassphrase(passphrase: string, saltBase64: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const salt = base64ToBytes(saltBase64);
