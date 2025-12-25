@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Note, Notebook, Tag } from "../types/note";
 import { supabase } from "../lib/supabaseClient";
 import { decryptString, encryptString } from "../lib/crypto";
@@ -22,8 +22,6 @@ type SupabaseNoteRow = {
   tag_ids: string[];
   content_nonce: string;
   content_ciphertext: string;
-  bucket_id: string;
-  object_path: string;
   created_at: string;
   updated_at: string;
 };
@@ -33,7 +31,6 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [isReady, setIsReady] = useState(false);
-  const storageBucketId = useMemo(() => (userId ? userId : ""), [userId]);
 
   const loadAll = useCallback(async () => {
     if (!userId || !encryptionKey) return;
@@ -44,7 +41,7 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
       supabase
         .from("notes")
         .select(
-          "id,title,notebook_id,tag_ids,content_nonce,content_ciphertext,bucket_id,object_path,created_at,updated_at"
+          "id,title,notebook_id,tag_ids,content_nonce,content_ciphertext,created_at,updated_at"
         )
         .order("updated_at", { ascending: false }),
     ]);
@@ -168,23 +165,6 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
 
       const { nonceBase64, ciphertextBase64 } = await encryptString(encryptionKey, note.content);
 
-      const bucket_id = storageBucketId;
-      const object_path = `${note.id}.md`;
-
-      // Store encrypted payload as a JSON string inside the markdown file.
-      const fileBody = JSON.stringify({
-        v: 1,
-        nonce: nonceBase64,
-        ciphertext: ciphertextBase64,
-      });
-
-      const uploadRes = await supabase.storage
-        .from(bucket_id)
-        .upload(object_path, new Blob([fileBody], { type: "text/plain" }), { upsert: true });
-
-      // If bucket doesn't exist yet, Supabase returns a 404 from storage.
-      if (uploadRes.error) throw uploadRes.error;
-
       const dbRes = await supabase
         .from("notes")
         .upsert(
@@ -196,19 +176,19 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
             tag_ids: note.tags ?? [],
             content_nonce: nonceBase64,
             content_ciphertext: ciphertextBase64,
-            bucket_id,
-            object_path,
+            bucket_id: null,
+            object_path: null,
           },
           { onConflict: "id" }
         )
-        .select("id,title,notebook_id,tag_ids,content_nonce,content_ciphertext,bucket_id,object_path,created_at,updated_at")
+        .select("id,title,notebook_id,tag_ids,content_nonce,content_ciphertext,created_at,updated_at")
         .single();
 
       if (dbRes.error) throw dbRes.error;
 
       setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...note } : n)));
     },
-    [encryptionKey, storageBucketId, userId]
+    [encryptionKey, userId]
   );
 
   const updateNote = useCallback(
@@ -221,18 +201,12 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
   const deleteNote = useCallback(
     async (id: string) => {
       if (!userId) throw new Error("Not authenticated");
-
-      const note = notes.find((n) => n.id === id);
       setNotes((prev) => prev.filter((n) => n.id !== id));
 
       const dbRes = await supabase.from("notes").delete().eq("id", id);
       if (dbRes.error) throw dbRes.error;
-
-      if (note) {
-        await supabase.storage.from(storageBucketId).remove([`${id}.md`]);
-      }
     },
-    [notes, storageBucketId, userId]
+    [userId]
   );
 
   const deleteNotebook = useCallback(

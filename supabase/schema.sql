@@ -56,7 +56,8 @@ for all
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
 
--- Notes: stores encrypted payload in DB + points to encrypted markdown in Storage
+-- Notes: stores encrypted payload in DB
+-- (Storage columns are optional; Storage setup can be done later without blocking the app.)
 create table if not exists public.notes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -68,9 +69,9 @@ create table if not exists public.notes (
   content_nonce text not null,
   content_ciphertext text not null,
 
-  -- where the encrypted markdown file is stored
-  bucket_id text not null,
-  object_path text not null,
+  -- optional: where the encrypted markdown file is stored (if Storage is enabled)
+  bucket_id text null,
+  object_path text null,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -107,12 +108,12 @@ before update on public.profiles
 for each row
 execute function public.set_updated_at();
 
--- On signup: create profile row and a dedicated Storage bucket named as the user UUID
+-- On signup: create profile row
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public, auth, storage
+set search_path = public, auth
 as $$
 begin
   insert into public.profiles(user_id, email, full_name, avatar_url)
@@ -124,12 +125,6 @@ begin
   )
   on conflict (user_id) do nothing;
 
-  -- Create a private bucket per user: bucket id = user uuid as text
-  -- This requires the function owner to have permissions on storage schema.
-  insert into storage.buckets (id, name, public)
-  values (new.id::text, new.id::text, false)
-  on conflict (id) do nothing;
-
   return new;
 end;
 $$;
@@ -140,34 +135,5 @@ after insert on auth.users
 for each row
 execute function public.handle_new_user();
 
--- Storage RLS: user can only access objects in their own bucket (bucket_id == auth.uid())
--- These tables already exist in Supabase projects.
-
-alter table storage.objects enable row level security;
-
-drop policy if exists "storage_objects_select_own_bucket" on storage.objects;
-create policy "storage_objects_select_own_bucket" on storage.objects
-for select
-using (bucket_id = auth.uid()::text);
-
-drop policy if exists "storage_objects_insert_own_bucket" on storage.objects;
-create policy "storage_objects_insert_own_bucket" on storage.objects
-for insert
-with check (bucket_id = auth.uid()::text);
-
-drop policy if exists "storage_objects_update_own_bucket" on storage.objects;
-create policy "storage_objects_update_own_bucket" on storage.objects
-for update
-using (bucket_id = auth.uid()::text)
-with check (bucket_id = auth.uid()::text);
-
-drop policy if exists "storage_objects_delete_own_bucket" on storage.objects;
-create policy "storage_objects_delete_own_bucket" on storage.objects
-for delete
-using (bucket_id = auth.uid()::text);
-
--- Backfill: ensure buckets exist for users created before trigger was added
-insert into storage.buckets (id, name, public)
-select u.id::text, u.id::text, false
-from auth.users u
-on conflict (id) do nothing;
+-- Storage setup (per-user buckets + storage.objects RLS) is intentionally not included here,
+-- because many Supabase projects restrict altering storage.* tables from the SQL Editor.
