@@ -30,6 +30,11 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [passphraseError, setPassphraseError] = useState<string | null>(null);
 
+  const isSchemaNotInitialized = useMemo(() => {
+    const msg = (authError ?? "").toLowerCase();
+    return msg.includes("profiles") && (msg.includes("schema cache") || msg.includes("could not find the table"));
+  }, [authError]);
+
   const encryptionReady = useMemo(() => Boolean(userId && encryptionKey), [encryptionKey, userId]);
 
   const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook } =
@@ -75,24 +80,48 @@ export default function App() {
     if (!userId) return;
 
     void (async () => {
-      const { data, error } = await supabase.from("profiles").select("encryption_salt").eq("user_id", userId).single();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("encryption_salt")
+        .eq("user_id", userId)
+        .maybeSingle();
+
       if (error) {
         setAuthError(error.message);
         return;
       }
+
       if (data?.encryption_salt) {
         setSaltBase64(data.encryption_salt);
         return;
       }
+
       const newSalt = generateSaltBase64();
-      const upsert = await supabase.from("profiles").update({ encryption_salt: newSalt }).eq("user_id", userId);
-      if (upsert.error) {
-        setAuthError(upsert.error.message);
+
+      // If the profile row doesn't exist yet (common when schema applied after user signup), create it.
+      if (!data) {
+        const insertRes = await supabase.from("profiles").insert({
+          user_id: userId,
+          email: userEmail,
+          encryption_salt: newSalt,
+        });
+        if (insertRes.error) {
+          setAuthError(insertRes.error.message);
+          return;
+        }
+        setSaltBase64(newSalt);
+        return;
+      }
+
+      // Row exists but salt missing → set it.
+      const updateRes = await supabase.from("profiles").update({ encryption_salt: newSalt }).eq("user_id", userId);
+      if (updateRes.error) {
+        setAuthError(updateRes.error.message);
         return;
       }
       setSaltBase64(newSalt);
     })();
-  }, [userId]);
+  }, [userEmail, userId]);
 
   const signInWithGoogle = async () => {
     setAuthError(null);
@@ -153,7 +182,21 @@ export default function App() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-gray-600">Signed in as {userEmail}</p>
-            {authError && <p className="text-sm text-red-600">{authError}</p>}
+            {authError && !isSchemaNotInitialized && <p className="text-sm text-red-600">{authError}</p>}
+            {isSchemaNotInitialized && (
+              <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-medium">Supabase database not initialized yet.</p>
+                <p className="mt-1">
+                  The app needs the <span className="font-mono">profiles</span> table and RLS policies. Run the SQL in
+                  <span className="font-mono"> supabase/schema.sql</span> using Supabase → SQL Editor, then refresh this
+                  page.
+                </p>
+                <p className="mt-1">
+                  If it still shows this error, wait ~1 minute for PostgREST schema cache to refresh, or use Supabase
+                  Settings → API → Reload schema cache.
+                </p>
+              </div>
+            )}
             {passphraseError && <p className="text-sm text-red-600">{passphraseError}</p>}
             <Input
               type="password"

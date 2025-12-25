@@ -19,9 +19,16 @@ drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles
 for select using (user_id = auth.uid());
 
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own" on public.profiles
+for insert
+with check (user_id = auth.uid());
+
 drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles
-for update using (user_id = auth.uid());
+for update
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
 
 -- Notebooks (optional but keeps current UI functional)
 create table if not exists public.notebooks (
@@ -134,6 +141,19 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row
 execute function public.handle_new_user();
+
+-- Backfill profiles for users that already existed before this schema was applied.
+-- Safe to re-run.
+insert into public.profiles(user_id, email, full_name, avatar_url)
+select
+  u.id,
+  u.email,
+  coalesce(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name'),
+  u.raw_user_meta_data->>'avatar_url'
+from auth.users u
+where not exists (
+  select 1 from public.profiles p where p.user_id = u.id
+);
 
 -- Storage setup (per-user buckets + storage.objects RLS) is intentionally not included here,
 -- because many Supabase projects restrict altering storage.* tables from the SQL Editor.
