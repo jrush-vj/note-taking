@@ -12,7 +12,7 @@ import {
   exportAllAsZip,
   importFromFile,
   type ImportResult,
-} from "../lib/exportImport";
+} from "../utils/exportImport"; // Update the path to the correct location
 
 interface ExportImportModalProps {
   isOpen: boolean;
