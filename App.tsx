@@ -20,7 +20,6 @@ import {
   Sun,
   Notebook,
   Menu,
-  X,
   Settings,
   Shield,
   Search,
@@ -72,6 +71,7 @@ import {
 import { createNoteFromTemplate } from "./lib/templates";
 import type { ImportResult } from "./lib/exportImport";
 import type { Note, Notebook as NotebookType, Tag as TagType, SearchFilters, AppPreferences, ThemeMode } from "./types/note";
+import { MobilePhoneUI } from "./components/MobilePhoneUI";
 
 export default function App() {
   const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null>(null);
@@ -106,7 +106,6 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const [mobileTab, setMobileTab] = useState<"sidebar" | "notes" | "editor" | "settings">("notes");
 
   // Fast-create UX
   const [isCreatingNote, setIsCreatingNote] = useState(false);
@@ -151,19 +150,6 @@ export default function App() {
       }
     }
   }, [theme]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    if (activePanel !== "notes") {
-      setMobileTab("settings");
-      return;
-    }
-    if (selectedNote) {
-      setMobileTab("editor");
-      return;
-    }
-    setMobileTab("notes");
-  }, [activePanel, isMobile, selectedNote]);
 
   // Save preferences
   useEffect(() => {
@@ -519,7 +505,6 @@ export default function App() {
       action: () => {
         setSearchFilters({ ...searchFilters, starred: true });
         setActivePanel("notes");
-        if (isMobile) setMobileTab("notes");
       },
       keywords: ["favorite", "important"],
     },
@@ -531,7 +516,6 @@ export default function App() {
       action: () => {
         setSearchFilters({ ...searchFilters, pinned: true });
         setActivePanel("notes");
-        if (isMobile) setMobileTab("notes");
       },
       keywords: ["pin"],
     },
@@ -605,15 +589,34 @@ export default function App() {
     );
   }
 
-  const showSidebar = !isMobile ? isSidebarOpen : mobileTab === "sidebar";
-  const showNotesList = !isMobile ? true : mobileTab === "notes";
-  const showMain = !isMobile ? true : mobileTab === "editor" || mobileTab === "settings";
+  if (isMobile) {
+    return (
+      <MobilePhoneUI
+        notes={notes}
+        notebooks={notebooks}
+        selectedNotebookId={selectedNotebook}
+        onSelectNotebook={(id) => {
+          setActivePanel("notes");
+          setSelectedNotebook(id);
+          setSelectedTag(null);
+          setSelectedNote(null);
+        }}
+        onSelectNote={(note) => {
+          setActivePanel("notes");
+          setSelectedNote(note);
+        }}
+        onCreateNote={() => {
+          void handleCreateNote();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark-amoled:bg-black text-gray-900 dark-amoled:text-white transition-colors duration-300">
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
-        {showSidebar && (
+        {isSidebarOpen && (
           <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">Folders</h2>
@@ -634,7 +637,6 @@ export default function App() {
                   setSelectedNotebook(null);
                   setSelectedTag(null);
                   setSearchFilters({ query: "", archived: false });
-                  if (isMobile) setMobileTab("notes");
                 }}
               >
                 <Notebook className="h-4 w-4" />
@@ -653,7 +655,6 @@ export default function App() {
                       setActivePanel("notes");
                       setSelectedNotebook(notebook.id);
                       setSelectedTag(null);
-                      if (isMobile) setMobileTab("notes");
                     }}
                   >
                     <Notebook className="h-4 w-4" />
@@ -688,7 +689,6 @@ export default function App() {
                     onClick={() => {
                       setActivePanel("notes");
                       setSelectedTag(tag.id);
-                      if (isMobile) setMobileTab("notes");
                     }}
                   >
                     #{tag.name}
@@ -705,7 +705,6 @@ export default function App() {
                 onClick={() => {
                   setActivePanel("account");
                   setSelectedNote(null);
-                  if (isMobile) setMobileTab("settings");
                 }}
               >
                 <Settings className="h-4 w-4" />
@@ -718,7 +717,6 @@ export default function App() {
                 onClick={() => {
                   setActivePanel("security");
                   setSelectedNote(null);
-                  if (isMobile) setMobileTab("settings");
                 }}
               >
                 <Shield className="h-4 w-4" />
@@ -742,7 +740,6 @@ export default function App() {
         )}
 
         {/* Notes List */}
-        {showNotesList && (
         <div className="w-full md:w-80 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
           <div className="p-3 border-b border-gray-200 dark-amoled:border-gray-900">
             <div className="flex items-center justify-between mb-3">
@@ -751,8 +748,7 @@ export default function App() {
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    if (!isMobile) setIsSidebarOpen(!isSidebarOpen);
-                    else setMobileTab("sidebar");
+                    setIsSidebarOpen(!isSidebarOpen);
                   }}
                   className="md:hidden h-8 w-8 p-0"
                 >
@@ -803,14 +799,11 @@ export default function App() {
             onSelect={(note) => {
               setActivePanel("notes");
               setSelectedNote(note);
-              if (isMobile) setMobileTab("editor");
             }}
           />
         </div>
-        )}
 
         {/* Main Content Area */}
-        {showMain && (
         <div className="flex-1 glass flex flex-col overflow-hidden">
           {activePanel === "account" ? (
             <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
@@ -877,7 +870,6 @@ export default function App() {
             </div>
           )}
         </div>
-        )}
 
         {/* Modals */}
         <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commands} />
@@ -921,49 +913,6 @@ export default function App() {
           </AlertDialogContent>
         </AlertDialog>
       </div>
-
-      {isMobile && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
-          <div className="glass rounded-2xl px-3 py-2 flex items-center justify-between border border-white/20">
-            <button
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "sidebar" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
-              onClick={() => setMobileTab("sidebar")}
-            >
-              <Notebook className="h-5 w-5" />
-              <span className="text-[11px]">Folders</span>
-            </button>
-            <button
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "notes" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
-              onClick={() => setMobileTab("notes")}
-            >
-              <Search className="h-5 w-5" />
-              <span className="text-[11px]">Notes</span>
-            </button>
-            <button
-              className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl bg-blue-600 text-white"
-              onClick={() => handleCreateNote()}
-            >
-              <Plus className="h-5 w-5" />
-              <span className="text-[11px]">New</span>
-            </button>
-            <button
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "editor" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
-              onClick={() => setMobileTab("editor")}
-              disabled={!selectedNote}
-            >
-              <FileText className="h-5 w-5" />
-              <span className="text-[11px]">Editor</span>
-            </button>
-            <button
-              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "settings" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
-              onClick={() => setMobileTab("settings")}
-            >
-              <Settings className="h-5 w-5" />
-              <span className="text-[11px]">Settings</span>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

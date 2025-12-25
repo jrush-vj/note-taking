@@ -82,6 +82,15 @@
 
 /* Glass morphism utilities */
 @layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
   .glass {
     background: var(--glass-bg);
     backdrop-filter: blur(14px) saturate(160%);
