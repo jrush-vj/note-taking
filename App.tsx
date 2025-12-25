@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Trash2, Edit3, Moon, Sun, Notebook, Tag, Menu, X } from "lucide-react";
+import { Plus, Trash2, Moon, Sun, Notebook, Menu, X, Settings, Shield } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Textarea } from "./components/ui/textarea";
@@ -38,12 +38,13 @@ export default function App() {
 
   const encryptionReady = useMemo(() => Boolean(userId && encryptionKey), [encryptionKey, userId]);
 
+  const accessToken = session?.access_token ?? null;
   const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook } =
-    useSupabaseNotes(userId, encryptionKey);
+    useSupabaseNotes(userId, encryptionKey, accessToken);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [selectedNotebook, setSelectedNotebook] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const [activePanel, setActivePanel] = useState<"notes" | "account" | "security">("notes");
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
   const [notebookToDelete, setNotebookToDelete] = useState<NotebookType | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -249,11 +250,13 @@ export default function App() {
     return notebookMatch && tagMatch;
   });
 
+  const selectedNoteFull = selectedNote ? notes.find((n) => n.id === selectedNote.id) ?? selectedNote : null;
+
   const handleCreateNote = async () => {
     try {
       const newNote = await addNote(selectedNotebook || undefined);
       setSelectedNote(newNote);
-      setIsEditing(true);
+      setActivePanel("notes");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create note";
       setAuthError(msg);
@@ -270,8 +273,7 @@ export default function App() {
   const handleSaveNote = async (updatedNote: Note) => {
     try {
       await updateNote(updatedNote.id, updatedNote);
-      setIsEditing(false);
-      setSelectedNote(null);
+      setSelectedNote(updatedNote);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save note";
       setAuthError(msg);
@@ -279,7 +281,6 @@ export default function App() {
   };
 
   const handleCancelEdit = () => {
-    setIsEditing(false);
     setSelectedNote(null);
   };
 
@@ -304,7 +305,6 @@ export default function App() {
     setNotebookToDelete(null);
     if (selectedNote?.id === noteToDelete?.id) {
       setSelectedNote(null);
-      setIsEditing(false);
     }
     if (selectedNotebook === notebookToDelete?.id) {
       setSelectedNotebook(null);
@@ -313,174 +313,250 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'} transition-colors duration-200`}>
-      <div className="flex h-screen">
+      <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         {isSidebarOpen && (
-          <div className={`w-64 ${isDarkMode ? 'bg-gray-800' : 'bg-white'} border-r ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} p-4 flex flex-col`}>
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold">Notebooks</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCreateNotebook}
-                className="h-8 w-8 p-0"
-              >
+          <div className={`w-64 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-100'} border-r ${isDarkMode ? 'border-gray-800' : 'border-gray-200'} p-3 flex flex-col`}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">Folders</h2>
+              <Button variant="ghost" size="sm" onClick={handleCreateNotebook} className="h-8 w-8 p-0">
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
 
-            <div className="flex-1 space-y-4">
-              {/* All Notes */}
-              <div
-                className={`p-2 rounded-lg cursor-pointer transition-colors ${
-                  !selectedNotebook ? (isDarkMode ? 'bg-blue-600' : 'bg-blue-100 text-blue-800') : (isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
+            <div className="space-y-2">
+              <button
+                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+                  !selectedNotebook && activePanel === 'notes'
+                    ? (isDarkMode ? 'bg-gray-800' : 'bg-white')
+                    : (isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white')
                 }`}
                 onClick={() => {
+                  setActivePanel('notes');
                   setSelectedNotebook(null);
                   setSelectedTag(null);
                 }}
               >
-                <div className="flex items-center space-x-2">
-                  <Notebook className="h-4 w-4" />
-                  <span className="font-medium">All Notes</span>
-                </div>
-              </div>
+                <Notebook className="h-4 w-4" />
+                <span>All Notes</span>
+              </button>
 
-              {/* Notebooks */}
               {notebooks.map((notebook) => (
-                <div
-                  key={notebook.id}
-                  className={`p-2 rounded-lg cursor-pointer transition-colors ${
-                    selectedNotebook === notebook.id ? (isDarkMode ? 'bg-blue-600' : 'bg-blue-100 text-blue-800') : (isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
-                  }`}
-                  onClick={() => {
-                    setSelectedNotebook(notebook.id);
-                    setSelectedTag(null);
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Notebook className="h-4 w-4" />
-                      <span className="font-medium">{notebook.name}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNotebook(notebook);
-                      }}
-                      className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+                <div key={notebook.id} className="flex items-center gap-1">
+                  <button
+                    className={`flex-1 text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+                      selectedNotebook === notebook.id && activePanel === 'notes'
+                        ? (isDarkMode ? 'bg-gray-800' : 'bg-white')
+                        : (isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white')
+                    }`}
+                    onClick={() => {
+                      setActivePanel('notes');
+                      setSelectedNotebook(notebook.id);
+                      setSelectedTag(null);
+                    }}
+                  >
+                    <Notebook className="h-4 w-4" />
+                    <span className="truncate">{notebook.name}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteNotebook(notebook);
+                    }}
+                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
+            </div>
 
-              {/* Tags Section */}
-              <div className="mt-8">
-                <h3 className="text-sm font-semibold mb-2 flex items-center space-x-2">
-                  <Tag className="h-4 w-4" />
-                  <span>Tags</span>
-                </h3>
-                <div className="space-y-1">
-                  {tags.map((tag) => (
-                    <div
-                      key={tag.id}
-                      className={`p-2 rounded-lg cursor-pointer transition-colors ${
-                        selectedTag === tag.id ? (isDarkMode ? 'bg-blue-600' : 'bg-blue-100 text-blue-800') : (isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100')
-                      }`}
-                      onClick={() => setSelectedTag(tag.id)}
-                    >
-                      <span className="text-sm">#{tag.name}</span>
-                    </div>
-                  ))}
-                </div>
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold uppercase tracking-wide opacity-70 mb-2">Tags</h3>
+              <div className="space-y-1">
+                {tags.map((tag) => (
+                  <button
+                    key={tag.id}
+                    className={`w-full text-left px-3 py-2 rounded-md text-sm ${
+                      selectedTag === tag.id && activePanel === 'notes'
+                        ? (isDarkMode ? 'bg-gray-800' : 'bg-white')
+                        : (isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white')
+                    }`}
+                    onClick={() => {
+                      setActivePanel('notes');
+                      setSelectedTag(tag.id);
+                    }}
+                  >
+                    #{tag.name}
+                  </button>
+                ))}
               </div>
+            </div>
+
+            <div className={`mt-auto pt-3 border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-200'} space-y-1`}>
+              <button
+                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+                  activePanel === 'account' ? (isDarkMode ? 'bg-gray-800' : 'bg-white') : (isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white')
+                }`}
+                onClick={() => {
+                  setActivePanel('account');
+                  setSelectedNote(null);
+                }}
+              >
+                <Settings className="h-4 w-4" />
+                Account Settings
+              </button>
+              <button
+                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 ${
+                  activePanel === 'security' ? (isDarkMode ? 'bg-gray-800' : 'bg-white') : (isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white')
+                }`}
+                onClick={() => {
+                  setActivePanel('security');
+                  setSelectedNote(null);
+                }}
+              >
+                <Shield className="h-4 w-4" />
+                Security
+              </button>
+              <button
+                className={`w-full text-left px-3 py-2 rounded-md text-sm text-red-600 ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white'}`}
+                onClick={signOut}
+              >
+                Sign out
+              </button>
+              <button
+                className={`w-full text-left px-3 py-2 rounded-md text-sm ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-white'}`}
+                onClick={toggleDarkMode}
+              >
+                {isDarkMode ? (
+                  <span className="flex items-center gap-2"><Sun className="h-4 w-4" /> Light mode</span>
+                ) : (
+                  <span className="flex items-center gap-2"><Moon className="h-4 w-4" /> Dark mode</span>
+                )}
+              </button>
             </div>
           </div>
         )}
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Header */}
-          <header className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-            <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="md:hidden"
-              >
+        {/* Notes List */}
+        <div className={`w-80 border-r ${isDarkMode ? 'border-gray-800 bg-gray-950' : 'border-gray-200 bg-white'} flex flex-col`}>
+          <div className={`p-3 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'} flex items-center justify-between`}>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="md:hidden h-8 w-8 p-0">
                 {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
-              <h1 className="text-2xl font-bold">
-                {selectedNotebook 
-                  ? notebooks.find(n => n.id === selectedNotebook)?.name || 'Notes'
-                  : selectedTag
-                  ? `#${tags.find(t => t.id === selectedTag)?.name}`
-                  : 'All Notes'}
+              <h1 className="text-base font-semibold">
+                {activePanel === 'notes'
+                  ? (selectedNotebook
+                      ? notebooks.find(n => n.id === selectedNotebook)?.name || 'Notes'
+                      : selectedTag
+                      ? `#${tags.find(t => t.id === selectedTag)?.name}`
+                      : 'All Notes')
+                  : activePanel === 'account'
+                  ? 'Account'
+                  : 'Security'}
               </h1>
             </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleDarkMode}
-                className="h-10 w-10 p-0"
-              >
-                {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            {activePanel === 'notes' && (
+              <Button onClick={handleCreateNote} size="sm" className={isDarkMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}>
+                <Plus className="h-4 w-4" />
               </Button>
-              <Button
-                onClick={handleCreateNote}
-                className={`rounded-full p-3 h-12 w-12 shadow-md ${isDarkMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'} text-white`}
-              >
-                <Plus className="h-6 w-6" />
-              </Button>
-            </div>
-          </header>
+            )}
+          </div>
 
-          {/* Notes Grid */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {filteredNotes.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <Notebook className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No notes yet</h3>
-                  <p className="text-gray-500 mb-4">Create your first note to get started</p>
-                  <Button onClick={handleCreateNote} className={isDarkMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'}>
-                    Create Note
-                  </Button>
-                </div>
+          <div className="flex-1 overflow-y-auto">
+            {activePanel !== 'notes' ? (
+              <div className={`p-4 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                {activePanel === 'account'
+                  ? 'Manage your account settings on the right.'
+                  : 'Security and encryption controls are on the right.'}
+              </div>
+            ) : filteredNotes.length === 0 ? (
+              <div className={`p-4 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                No notes yet.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredNotes.map((note) => (
-                  <NoteCard
-                    key={note.id}
-                    note={note}
-                    notebooks={notebooks}
-                    tags={tags}
-                    onSelect={() => {
-                      setSelectedNote(note);
-                      setIsEditing(true);
-                    }}
-                    onDelete={() => handleDeleteNote(note)}
-                    isDarkMode={isDarkMode}
-                  />
-                ))}
+              <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                {filteredNotes.map((note) => {
+                  const isSelected = selectedNote?.id === note.id;
+                  const title = note.title || 'Untitled';
+                  const preview = note.content.length > 80 ? note.content.slice(0, 80) + '…' : note.content;
+                  return (
+                    <button
+                      key={note.id}
+                      className={`w-full text-left p-3 hover:bg-gray-50 dark:hover:bg-gray-900 ${isSelected ? (isDarkMode ? 'bg-gray-900' : 'bg-gray-100') : ''}`}
+                      onClick={() => {
+                        setActivePanel('notes');
+                        setSelectedNote(note);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium truncate">{title}</div>
+                        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{new Date(note.updatedAt).toLocaleDateString()}</div>
+                      </div>
+                      <div className={`mt-1 text-xs line-clamp-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{preview || ' '}</div>
+                      <div className="mt-2 flex items-center justify-between">
+                        <div className="text-xs opacity-60"> </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDeleteNote(note);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
 
-        {/* Editor Modal */}
-        {isEditing && selectedNote && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className={`rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+        {/* Editor / Settings Pane */}
+        <div className={`flex-1 ${isDarkMode ? 'bg-gray-950' : 'bg-white'} flex flex-col`}>
+          {activePanel === 'account' ? (
+            <div className="p-6 space-y-4">
+              <h2 className="text-xl font-semibold">Account Settings</h2>
+              <div className={`rounded-md border p-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="text-sm">Email</div>
+                <div className="font-medium break-all">{userEmail}</div>
+                <div className="mt-3 text-sm">User ID</div>
+                <div className="font-mono text-xs break-all">{userId}</div>
+              </div>
+            </div>
+          ) : activePanel === 'security' ? (
+            <div className="p-6 space-y-4">
+              <h2 className="text-xl font-semibold">Security</h2>
+              <div className={`rounded-md border p-4 ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="text-sm font-medium">Encryption</div>
+                <p className={`mt-1 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  Notes are encrypted in the browser using your passphrase before they are stored in Supabase.
+                </p>
+                <Button
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => {
+                    setEncryptionKey(null);
+                    setPassphrase('');
+                    setPassphraseError(null);
+                  }}
+                >
+                  Lock now
+                </Button>
+              </div>
+            </div>
+          ) : selectedNoteFull ? (
+            <div className="flex-1 overflow-hidden">
               <NoteEditor
-                note={selectedNote}
+                note={selectedNoteFull}
                 notebooks={notebooks}
                 tags={tags}
                 onSave={handleSaveNote}
@@ -489,8 +565,12 @@ export default function App() {
                 addTag={addTag}
               />
             </div>
-          </div>
-        )}
+          ) : (
+            <div className={`flex-1 flex items-center justify-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              Select a note or create a new one.
+            </div>
+          )}
+        </div>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
@@ -523,84 +603,6 @@ export default function App() {
         </AlertDialog>
       </div>
     </div>
-  );
-}
-
-function NoteCard({ note, notebooks, tags, onSelect, onDelete, isDarkMode }: { 
-  note: Note; 
-  notebooks: NotebookType[]; 
-  tags: TagType[];
-  onSelect: () => void; 
-  onDelete: () => void;
-  isDarkMode: boolean;
-}) {
-  const preview = note.content.length > 100 ? note.content.substring(0, 100) + '...' : note.content;
-  const notebook = notebooks.find(n => n.id === note.notebookId);
-  const noteTags = tags.filter(t => note.tags?.includes(t.id));
-  
-  return (
-    <Card 
-      className={`cursor-pointer hover:shadow-md transition-shadow ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}
-      onClick={onSelect}
-    >
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className={`text-lg font-semibold truncate ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>
-          {note.title || 'Untitled Note'}
-        </CardTitle>
-        {notebook && (
-          <div className="flex items-center space-x-1 text-sm">
-            <Notebook className="h-3 w-3" />
-            <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>{notebook.name}</span>
-          </div>
-        )}
-      </CardHeader>
-      <CardContent className="p-4 pt-0">
-        <p className={`text-sm mb-3 line-clamp-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-          {preview}
-        </p>
-        
-        {noteTags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {noteTags.map(tag => (
-              <span
-                key={tag.id}
-                className={`px-2 py-1 rounded-full text-xs ${isDarkMode ? 'bg-blue-900 text-blue-200' : 'bg-blue-100 text-blue-800'}`}
-              >
-                #{tag.name}
-              </span>
-            ))}
-          </div>
-        )}
-        
-        <div className={`flex items-center justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-          <span>{new Date(note.updatedAt).toLocaleDateString()}</span>
-          <div className="flex space-x-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect();
-              }}
-              className="h-8 w-8 p-0"
-            >
-              <Edit3 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

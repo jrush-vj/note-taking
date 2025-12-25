@@ -26,7 +26,7 @@ type SupabaseNoteRow = {
   updated_at: string;
 };
 
-export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey | null) {
+export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey | null, accessToken: string | null) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -196,8 +196,6 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
             tag_ids: note.tags ?? [],
             content_nonce: nonceBase64,
             content_ciphertext: ciphertextBase64,
-            bucket_id: null,
-            object_path: null,
           },
           { onConflict: "id" }
         )
@@ -206,9 +204,30 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
 
       if (dbRes.error) throw dbRes.error;
 
+      // Upload encrypted markdown to Storage via serverless (service role) so we don't need Storage RLS.
+      if (accessToken) {
+        const uploadRes = await fetch("/api/storage/note", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            noteId: note.id,
+            nonceBase64,
+            ciphertextBase64,
+          }),
+        });
+
+        if (!uploadRes.ok) {
+          const text = await uploadRes.text().catch(() => "");
+          throw new Error(text || "Storage upload failed");
+        }
+      }
+
       setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...note } : n)));
     },
-    [encryptionKey, userId]
+    [accessToken, encryptionKey, userId]
   );
 
   const updateNote = useCallback(
