@@ -137,19 +137,39 @@ export function useSupabaseNotes(userId: string | null, encryptionKey: CryptoKey
   );
 
   const addNote = useCallback(
-    (notebookId?: string) => {
+    async (notebookId?: string) => {
       if (!userId) throw new Error("Not authenticated");
       if (!encryptionKey) throw new Error("Missing encryption key");
 
-      const now = Date.now();
+      const id = crypto.randomUUID();
+      const { nonceBase64, ciphertextBase64 } = await encryptString(encryptionKey, "");
+
+      const insertRes = await supabase
+        .from("notes")
+        .insert({
+          id,
+          user_id: userId,
+          title: "",
+          notebook_id: notebookId ?? null,
+          tag_ids: [],
+          content_nonce: nonceBase64,
+          content_ciphertext: ciphertextBase64,
+          bucket_id: null,
+          object_path: null,
+        })
+        .select("id,title,notebook_id,tag_ids,created_at,updated_at")
+        .single();
+
+      if (insertRes.error) throw insertRes.error;
+
       const newNote: Note = {
-        id: crypto.randomUUID(),
+        id: insertRes.data.id,
         title: "",
         content: "",
-        notebookId,
-        tags: [],
-        createdAt: now,
-        updatedAt: now,
+        notebookId: insertRes.data.notebook_id ?? undefined,
+        tags: insertRes.data.tag_ids ?? [],
+        createdAt: new Date(insertRes.data.created_at).getTime(),
+        updatedAt: new Date(insertRes.data.updated_at).getTime(),
       };
 
       setNotes((prev) => [newNote, ...prev]);

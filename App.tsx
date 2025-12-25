@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Edit3, Moon, Sun, Notebook, Tag, Menu, X } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -23,6 +23,7 @@ export default function App() {
   const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null>(null);
   const userId = session?.user?.id ?? null;
   const userEmail = session?.user?.email ?? null;
+  const lastUserIdRef = useRef<string | null>(null);
 
   const [saltBase64, setSaltBase64] = useState<string | null>(null);
   const [passphrase, setPassphrase] = useState<string>("");
@@ -60,17 +61,31 @@ export default function App() {
       const { data, error } = await supabase.auth.getSession();
       if (error) setAuthError(error.message);
       setSession(data.session);
+      lastUserIdRef.current = data.session?.user?.id ?? null;
     })();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
-      setSaltBase64(null);
-      setEncryptionKey(null);
-      setPassphrase("");
-      setAuthError(null);
-      setPassphraseError(null);
+
+      const nextUserId = nextSession?.user?.id ?? null;
+      const lastUserId = lastUserIdRef.current;
+
+      // Token refresh/focus events should NOT force re-unlock.
+      // Only clear encryption state when the user actually signs out or changes.
+      const userChanged = Boolean(lastUserId && nextUserId && lastUserId !== nextUserId);
+      const signedOut = event === "SIGNED_OUT" || !nextUserId;
+
+      if (signedOut || userChanged) {
+        setSaltBase64(null);
+        setEncryptionKey(null);
+        setPassphrase("");
+        setAuthError(null);
+        setPassphraseError(null);
+      }
+
+      lastUserIdRef.current = nextUserId;
     });
 
     return () => subscription.unsubscribe();
@@ -234,10 +249,15 @@ export default function App() {
     return notebookMatch && tagMatch;
   });
 
-  const handleCreateNote = () => {
-    const newNote = addNote(selectedNotebook || undefined);
-    setSelectedNote(newNote);
-    setIsEditing(true);
+  const handleCreateNote = async () => {
+    try {
+      const newNote = await addNote(selectedNotebook || undefined);
+      setSelectedNote(newNote);
+      setIsEditing(true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to create note";
+      setAuthError(msg);
+    }
   };
 
   const handleCreateNotebook = () => {
@@ -247,10 +267,15 @@ export default function App() {
     }
   };
 
-  const handleSaveNote = (updatedNote: Note) => {
-    updateNote(updatedNote.id, updatedNote);
-    setIsEditing(false);
-    setSelectedNote(null);
+  const handleSaveNote = async (updatedNote: Note) => {
+    try {
+      await updateNote(updatedNote.id, updatedNote);
+      setIsEditing(false);
+      setSelectedNote(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save note";
+      setAuthError(msg);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -583,7 +608,7 @@ function NoteEditor({ note, notebooks, tags, onSave, onCancel, isDarkMode, addTa
   note: Note; 
   notebooks: NotebookType[]; 
   tags: TagType[];
-  onSave: (note: Note) => void; 
+  onSave: (note: Note) => Promise<void>; 
   onCancel: () => void;
   isDarkMode: boolean;
   addTag: (name: string) => Promise<string>;
@@ -594,8 +619,8 @@ function NoteEditor({ note, notebooks, tags, onSave, onCancel, isDarkMode, addTa
   const [tagInput, setTagInput] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>(note.tags || []);
 
-  const handleSave = () => {
-    onSave({
+  const handleSave = async () => {
+    await onSave({
       ...note,
       title: title.trim(),
       content: content.trim(),
