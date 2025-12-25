@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, Edit3, Moon, Sun, Notebook, Tag, Menu, X } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -14,11 +14,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
-import { useNotes } from "./hooks/useNotes";
+import { supabase } from "./lib/supabaseClient";
+import { deriveKeyFromPassphrase, generateSaltBase64 } from "./lib/crypto";
+import { useSupabaseNotes } from "./hooks/useSupabaseNotes";
 import type { Note, Notebook as NotebookType, Tag as TagType } from "./types/note";
 
 export default function App() {
-  const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook } = useNotes();
+  const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null>(null);
+  const userId = session?.user?.id ?? null;
+  const userEmail = session?.user?.email ?? null;
+
+  const [saltBase64, setSaltBase64] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState<string>("");
+  const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [passphraseError, setPassphraseError] = useState<string | null>(null);
+
+  const encryptionReady = useMemo(() => Boolean(userId && encryptionKey), [encryptionKey, userId]);
+
+  const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook } =
+    useSupabaseNotes(userId, encryptionKey);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [selectedNotebook, setSelectedNotebook] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -34,6 +49,134 @@ export default function App() {
     setIsDarkMode(isDark);
     document.documentElement.classList.toggle('dark', isDark);
   }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) setAuthError(error.message);
+      setSession(data.session);
+    })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setSaltBase64(null);
+      setEncryptionKey(null);
+      setPassphrase("");
+      setAuthError(null);
+      setPassphraseError(null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    void (async () => {
+      const { data, error } = await supabase.from("profiles").select("encryption_salt").eq("user_id", userId).single();
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+      if (data?.encryption_salt) {
+        setSaltBase64(data.encryption_salt);
+        return;
+      }
+      const newSalt = generateSaltBase64();
+      const upsert = await supabase.from("profiles").update({ encryption_salt: newSalt }).eq("user_id", userId);
+      if (upsert.error) {
+        setAuthError(upsert.error.message);
+        return;
+      }
+      setSaltBase64(newSalt);
+    })();
+  }, [userId]);
+
+  const signInWithGoogle = async () => {
+    setAuthError(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) setAuthError(error.message);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const unlockEncryption = async () => {
+    if (!saltBase64) {
+      setPassphraseError("Missing encryption salt. Run the Supabase setup SQL first.");
+      return;
+    }
+    if (passphrase.trim().length < 8) {
+      setPassphraseError("Passphrase must be at least 8 characters.");
+      return;
+    }
+    setPassphraseError(null);
+    const key = await deriveKeyFromPassphrase(passphrase, saltBase64);
+    setEncryptionKey(key);
+  };
+
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Sign in</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {authError && <p className="text-sm text-red-600">{authError}</p>}
+            <Button onClick={signInWithGoogle} className="w-full">
+              Continue with Google
+            </Button>
+            <p className="text-xs text-gray-500">
+              You will be asked for a passphrase next. It encrypts your notes before they are stored in Supabase.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!encryptionReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Unlock Notes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-600">Signed in as {userEmail}</p>
+            {authError && <p className="text-sm text-red-600">{authError}</p>}
+            {passphraseError && <p className="text-sm text-red-600">{passphraseError}</p>}
+            <Input
+              type="password"
+              placeholder="Enter a passphrase (you must remember it)"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <Button onClick={unlockEncryption} className="flex-1">
+                Unlock
+              </Button>
+              <Button variant="outline" onClick={signOut}>
+                Sign out
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500">
+              This passphrase is never sent to Supabase. If you forget it, existing notes cannot be decrypted.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const toggleDarkMode = () => {
     const newDarkMode = !isDarkMode;
@@ -400,7 +543,7 @@ function NoteEditor({ note, notebooks, tags, onSave, onCancel, isDarkMode, addTa
   onSave: (note: Note) => void; 
   onCancel: () => void;
   isDarkMode: boolean;
-  addTag: (name: string) => string;
+  addTag: (name: string) => Promise<string>;
 }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
@@ -419,10 +562,10 @@ function NoteEditor({ note, notebooks, tags, onSave, onCancel, isDarkMode, addTa
     });
   };
 
-  const handleTagInput = (e: React.KeyboardEvent) => {
+  const handleTagInput = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && tagInput.trim()) {
       e.preventDefault();
-      const tagId = addTag(tagInput.trim());
+      const tagId = await addTag(tagInput.trim());
       setSelectedTags(prev => [...prev, tagId]);
       setTagInput('');
     }
