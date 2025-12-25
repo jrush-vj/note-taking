@@ -22,19 +22,7 @@ type NotebookPayload = { v: 1; name: string };
 
 type TagPayload = { v: 1; name: string };
 
-type NotePayloadV1 = { v: 1; title: string; content: string };
-type NotePayloadV2 = {
-  v: 2;
-  title: string;
-  content: string;
-  pinned?: boolean;
-  starred?: boolean;
-  archived?: boolean;
-  isTemplate?: boolean;
-  templateVariables?: string[];
-};
-
-type NotePayload = NotePayloadV1 | NotePayloadV2;
+type NotePayload = { v: 1; title: string; content: string };
 
 async function decryptJson<T>(key: CryptoKey, nonce: string, ciphertext: string): Promise<T> {
   const plaintext = await decryptString(key, nonce, ciphertext);
@@ -112,22 +100,12 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
 
       if (row.type === "note") {
         const payload = await decryptJson<NotePayload>(encryptionKey, row.nonce, row.ciphertext);
-
-        const title = payload?.title ?? "";
-        const content = payload?.content ?? "";
-        const flags = payload && "v" in payload && payload.v === 2 ? payload : undefined;
-
         nextNotes.push({
           id: row.id,
-          title,
-          content,
+          title: payload?.title ?? "",
+          content: payload?.content ?? "",
           notebookId: noteToNotebook.get(row.id) ?? undefined,
           tags: noteToTags.get(row.id) ?? [],
-          pinned: flags?.pinned ?? false,
-          starred: flags?.starred ?? false,
-          archived: flags?.archived ?? false,
-          isTemplate: flags?.isTemplate ?? false,
-          templateVariables: flags?.templateVariables ?? [],
           createdAt: new Date(row.created_at).getTime(),
           updatedAt: new Date(row.updated_at).getTime(),
         });
@@ -271,16 +249,7 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       if (!userId) throw new Error("Not authenticated");
       if (!encryptionKey) throw new Error("Missing encryption key");
 
-      const payload: NotePayload = {
-        v: 2,
-        title: "",
-        content: "",
-        pinned: false,
-        starred: false,
-        archived: false,
-        isTemplate: false,
-        templateVariables: [],
-      };
+      const payload: NotePayload = { v: 1, title: "", content: "" };
       const { nonceBase64, ciphertextBase64 } = await encryptJson(encryptionKey, payload);
 
       const insertRes = await supabase
@@ -311,11 +280,6 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
         content: "",
         notebookId,
         tags: [],
-        pinned: false,
-        starred: false,
-        archived: false,
-        isTemplate: false,
-        templateVariables: [],
         createdAt: new Date(insertRes.data.created_at).getTime(),
         updatedAt: new Date(insertRes.data.updated_at).getTime(),
       };
@@ -331,16 +295,7 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       if (!userId) throw new Error("Not authenticated");
       if (!encryptionKey) throw new Error("Missing encryption key");
 
-      const payload: NotePayload = {
-        v: 2,
-        title: updated.title ?? "",
-        content: updated.content ?? "",
-        pinned: Boolean(updated.pinned),
-        starred: Boolean(updated.starred),
-        archived: Boolean(updated.archived),
-        isTemplate: Boolean(updated.isTemplate),
-        templateVariables: updated.templateVariables ?? [],
-      };
+      const payload: NotePayload = { v: 1, title: updated.title ?? "", content: updated.content ?? "" };
       const { nonceBase64, ciphertextBase64 } = await encryptJson(encryptionKey, payload);
 
       const upRes = await supabase
