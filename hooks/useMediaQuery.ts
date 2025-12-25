@@ -12,16 +12,19 @@ export function useMediaQuery(query: string): boolean {
 
     setMatches(mql.matches);
 
-    if ("addEventListener" in mql) {
+    if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", onChange);
       return () => mql.removeEventListener("change", onChange);
     }
 
-    // Safari < 14
-    // eslint-disable-next-line deprecation/deprecation
-    mql.addListener(onChange);
-    // eslint-disable-next-line deprecation/deprecation
-    return () => mql.removeListener(onChange);
+    // Safari < 14 (typed as deprecated/optional in modern TS DOM libs)
+    const legacy = mql as MediaQueryList & {
+      addListener?: (listener: (this: MediaQueryList, ev: MediaQueryListEvent) => unknown) => void;
+      removeListener?: (listener: (this: MediaQueryList, ev: MediaQueryListEvent) => unknown) => void;
+    };
+
+    legacy.addListener?.(onChange);
+    return () => legacy.removeListener?.(onChange);
   }, [query]);
 
   return matches;
