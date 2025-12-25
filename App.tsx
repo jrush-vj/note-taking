@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Plus,
   Trash2,
@@ -58,6 +59,7 @@ import {
   importAesKeyFromBase64,
 } from "./lib/crypto";
 import { useZkNotes } from "./hooks/useZkNotes";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import { NoteSearchService } from "./lib/searchService";
 import {
   saveNotesLocally,
@@ -68,7 +70,7 @@ import {
   savePreferences,
 } from "./lib/localStorage";
 import { createNoteFromTemplate } from "./lib/templates";
-import { importFromFile, type ImportResult } from "./lib/exportImport";
+import type { ImportResult } from "./lib/exportImport";
 import type { Note, Notebook as NotebookType, Tag as TagType, SearchFilters, AppPreferences, ThemeMode } from "./types/note";
 
 export default function App() {
@@ -102,6 +104,12 @@ export default function App() {
   // Theme
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const [mobileTab, setMobileTab] = useState<"sidebar" | "notes" | "editor" | "settings">("notes");
+
+  // Fast-create UX
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -143,6 +151,19 @@ export default function App() {
       }
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (activePanel !== "notes") {
+      setMobileTab("settings");
+      return;
+    }
+    if (selectedNote) {
+      setMobileTab("editor");
+      return;
+    }
+    setMobileTab("notes");
+  }, [activePanel, isMobile, selectedNote]);
 
   // Save preferences
   useEffect(() => {
@@ -332,6 +353,20 @@ export default function App() {
   }, [theme]);
 
   const handleCreateNote = async (templateNote?: Note) => {
+    setAuthError(null);
+    setActivePanel("notes");
+    setIsCreatingNote(true);
+
+    const placeholder: Note = {
+      id: "__creating__",
+      title: "",
+      content: "",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setSelectedNote(placeholder);
+    if (isMobile) setMobileTab("editor");
+
     try {
       let newNote: Note;
       if (templateNote) {
@@ -346,6 +381,9 @@ export default function App() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create note";
       setAuthError(msg);
+      setSelectedNote(null);
+    } finally {
+      setIsCreatingNote(false);
     }
   };
 
@@ -358,6 +396,7 @@ export default function App() {
 
   const handleSaveNote = async (updatedNote: Note) => {
     try {
+      if (updatedNote.id === "__creating__") return;
       await updateNote(updatedNote.id, updatedNote);
       setSelectedNote(updatedNote);
     } catch (e) {
@@ -367,18 +406,22 @@ export default function App() {
   };
 
   const handleTogglePinned = async (note: Note) => {
+    if (note.id === "__creating__") return;
     await updateNote(note.id, { ...note, pinned: !note.pinned });
   };
 
   const handleToggleStarred = async (note: Note) => {
+    if (note.id === "__creating__") return;
     await updateNote(note.id, { ...note, starred: !note.starred });
   };
 
   const handleToggleArchived = async (note: Note) => {
+    if (note.id === "__creating__") return;
     await updateNote(note.id, { ...note, archived: !note.archived });
   };
 
   const handleDeleteNote = (note: Note) => {
+    if (note.id === "__creating__") return;
     setNoteToDelete(note);
     setIsDeleteDialogOpen(true);
   };
@@ -476,6 +519,7 @@ export default function App() {
       action: () => {
         setSearchFilters({ ...searchFilters, starred: true });
         setActivePanel("notes");
+        if (isMobile) setMobileTab("notes");
       },
       keywords: ["favorite", "important"],
     },
@@ -487,6 +531,7 @@ export default function App() {
       action: () => {
         setSearchFilters({ ...searchFilters, pinned: true });
         setActivePanel("notes");
+        if (isMobile) setMobileTab("notes");
       },
       keywords: ["pin"],
     },
@@ -560,11 +605,15 @@ export default function App() {
     );
   }
 
+  const showSidebar = !isMobile ? isSidebarOpen : mobileTab === "sidebar";
+  const showNotesList = !isMobile ? true : mobileTab === "notes";
+  const showMain = !isMobile ? true : mobileTab === "editor" || mobileTab === "settings";
+
   return (
     <div className="min-h-screen bg-gray-50 dark-amoled:bg-black text-gray-900 dark-amoled:text-white transition-colors duration-300">
       <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
-        {isSidebarOpen && (
+        {showSidebar && (
           <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">Folders</h2>
@@ -585,6 +634,7 @@ export default function App() {
                   setSelectedNotebook(null);
                   setSelectedTag(null);
                   setSearchFilters({ query: "", archived: false });
+                  if (isMobile) setMobileTab("notes");
                 }}
               >
                 <Notebook className="h-4 w-4" />
@@ -603,6 +653,7 @@ export default function App() {
                       setActivePanel("notes");
                       setSelectedNotebook(notebook.id);
                       setSelectedTag(null);
+                      if (isMobile) setMobileTab("notes");
                     }}
                   >
                     <Notebook className="h-4 w-4" />
@@ -637,6 +688,7 @@ export default function App() {
                     onClick={() => {
                       setActivePanel("notes");
                       setSelectedTag(tag.id);
+                      if (isMobile) setMobileTab("notes");
                     }}
                   >
                     #{tag.name}
@@ -653,6 +705,7 @@ export default function App() {
                 onClick={() => {
                   setActivePanel("account");
                   setSelectedNote(null);
+                  if (isMobile) setMobileTab("settings");
                 }}
               >
                 <Settings className="h-4 w-4" />
@@ -665,6 +718,7 @@ export default function App() {
                 onClick={() => {
                   setActivePanel("security");
                   setSelectedNote(null);
+                  if (isMobile) setMobileTab("settings");
                 }}
               >
                 <Shield className="h-4 w-4" />
@@ -688,17 +742,21 @@ export default function App() {
         )}
 
         {/* Notes List */}
-        <div className="w-80 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
+        {showNotesList && (
+        <div className="w-full md:w-80 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
           <div className="p-3 border-b border-gray-200 dark-amoled:border-gray-900">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                  onClick={() => {
+                    if (!isMobile) setIsSidebarOpen(!isSidebarOpen);
+                    else setMobileTab("sidebar");
+                  }}
                   className="md:hidden h-8 w-8 p-0"
                 >
-                  {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                  <Menu className="h-5 w-5" />
                 </Button>
                 <h1 className="text-base font-semibold">
                   {activePanel === "notes"
@@ -737,50 +795,22 @@ export default function App() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {activePanel !== "notes" ? (
-              <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
-                {activePanel === "account" ? "Manage your account settings on the right." : "Security and encryption controls are on the right."}
-              </div>
-            ) : filteredNotes.length === 0 ? (
-              <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">No notes found.</div>
-            ) : (
-              <div className="divide-y divide-gray-200 dark-amoled:divide-gray-900">
-                {filteredNotes.map((note) => {
-                  const isSelected = selectedNote?.id === note.id;
-                  const title = note.title || "Untitled";
-                  const preview = note.content.length > 80 ? note.content.slice(0, 80) + "…" : note.content;
-                  return (
-                    <button
-                      key={note.id}
-                      className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-colors ${
-                        isSelected ? "bg-gray-100 dark-amoled:bg-gray-950" : ""
-                      }`}
-                      onClick={() => {
-                        setActivePanel("notes");
-                        setSelectedNote(note);
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="font-medium truncate flex items-center gap-2">
-                          {note.pinned && <Pin className="h-3 w-3 text-blue-500" />}
-                          {note.starred && <Star className="h-3 w-3 text-yellow-500" />}
-                          {title}
-                        </div>
-                        <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
-                          {new Date(note.updatedAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <NotesList
+            activePanel={activePanel}
+            filteredNotes={filteredNotes}
+            isCreatingNote={isCreatingNote}
+            selectedNoteId={selectedNote?.id ?? null}
+            onSelect={(note) => {
+              setActivePanel("notes");
+              setSelectedNote(note);
+              if (isMobile) setMobileTab("editor");
+            }}
+          />
         </div>
+        )}
 
         {/* Main Content Area */}
+        {showMain && (
         <div className="flex-1 glass flex flex-col overflow-hidden">
           {activePanel === "account" ? (
             <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
@@ -835,6 +865,7 @@ export default function App() {
               onDelete={() => handleDeleteNote(selectedNoteFull)}
               onCancel={() => setSelectedNote(null)}
               addTag={addTag}
+              isCreating={isCreatingNote || selectedNoteFull.id === "__creating__"}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-gray-500 dark-amoled:text-gray-400">
@@ -846,6 +877,7 @@ export default function App() {
             </div>
           )}
         </div>
+        )}
 
         {/* Modals */}
         <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commands} />
@@ -889,6 +921,127 @@ export default function App() {
           </AlertDialogContent>
         </AlertDialog>
       </div>
+
+      {isMobile && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
+          <div className="glass rounded-2xl px-3 py-2 flex items-center justify-between border border-white/20">
+            <button
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "sidebar" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
+              onClick={() => setMobileTab("sidebar")}
+            >
+              <Notebook className="h-5 w-5" />
+              <span className="text-[11px]">Folders</span>
+            </button>
+            <button
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "notes" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
+              onClick={() => setMobileTab("notes")}
+            >
+              <Search className="h-5 w-5" />
+              <span className="text-[11px]">Notes</span>
+            </button>
+            <button
+              className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl bg-blue-600 text-white"
+              onClick={() => handleCreateNote()}
+            >
+              <Plus className="h-5 w-5" />
+              <span className="text-[11px]">New</span>
+            </button>
+            <button
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "editor" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
+              onClick={() => setMobileTab("editor")}
+              disabled={!selectedNote}
+            >
+              <FileText className="h-5 w-5" />
+              <span className="text-[11px]">Editor</span>
+            </button>
+            <button
+              className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl ${mobileTab === "settings" ? "bg-blue-100/60 dark-amoled:bg-blue-950/40" : ""}`}
+              onClick={() => setMobileTab("settings")}
+            >
+              <Settings className="h-5 w-5" />
+              <span className="text-[11px]">Settings</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotesList({
+  activePanel,
+  filteredNotes,
+  selectedNoteId,
+  onSelect,
+  isCreatingNote,
+}: {
+  activePanel: "notes" | "account" | "security";
+  filteredNotes: Note[];
+  selectedNoteId: string | null;
+  onSelect: (note: Note) => void;
+  isCreatingNote: boolean;
+}) {
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const count = filteredNotes.length;
+
+  const rowVirtualizer = useVirtualizer({
+    count,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 82,
+    overscan: 10,
+  });
+
+  return (
+    <div ref={parentRef} className="flex-1 overflow-y-auto custom-scrollbar">
+      {activePanel !== "notes" ? (
+        <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
+          {activePanel === "account" ? "Manage your account settings on the right." : "Security and encryption controls are on the right."}
+        </div>
+      ) : isCreatingNote ? (
+        <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">Creating note…</div>
+      ) : count === 0 ? (
+        <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">No notes found.</div>
+      ) : (
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const note = filteredNotes[virtualRow.index];
+            const isSelected = selectedNoteId === note.id;
+            const title = note.title || "Untitled";
+            const preview = note.content.length > 80 ? note.content.slice(0, 80) + "…" : note.content;
+            return (
+              <div
+                key={note.id}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <button
+                  className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-colors ${
+                    isSelected ? "bg-gray-100 dark-amoled:bg-gray-950" : ""
+                  }`}
+                  onClick={() => onSelect(note)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="font-medium truncate flex items-center gap-2">
+                      {note.pinned && <Pin className="h-3 w-3 text-blue-500" />}
+                      {note.starred && <Star className="h-3 w-3 text-yellow-500" />}
+                      {title}
+                    </div>
+                    <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
+                      {new Date(note.updatedAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -905,6 +1058,7 @@ function NoteEditor({
   onDelete,
   onCancel,
   addTag,
+  isCreating,
 }: {
   note: Note;
   notebooks: NotebookType[];
@@ -916,6 +1070,7 @@ function NoteEditor({
   onDelete: () => void;
   onCancel: () => void;
   addTag: (name: string) => Promise<string>;
+  isCreating: boolean;
 }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
@@ -929,6 +1084,7 @@ function NoteEditor({
 
   // Auto-save with debounce
   useEffect(() => {
+    if (isCreating) return;
     if (title === note.title && content === note.content && selectedNotebook === note.notebookId) {
       return;
     }
@@ -957,7 +1113,7 @@ function NoteEditor({
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [title, content, selectedNotebook, selectedTags]);
+  }, [title, content, isCreating, note.content, note.notebookId, note.title, onSave, selectedNotebook, selectedTags]);
 
   const handleTagInput = async (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && tagInput.trim()) {
@@ -1000,7 +1156,9 @@ function NoteEditor({
             </button>
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500 dark-amoled:text-gray-400">
-            {isSaving ? (
+            {isCreating ? (
+              <span>Creating…</span>
+            ) : isSaving ? (
               <span>Saving...</span>
             ) : lastSaved ? (
               <span>Saved {new Date(lastSaved).toLocaleTimeString()}</span>
@@ -1015,6 +1173,7 @@ function NoteEditor({
           placeholder="Note title..."
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          disabled={isCreating}
           className="text-xl font-semibold border-none focus-visible:ring-0 bg-transparent px-0"
         />
 
@@ -1022,6 +1181,7 @@ function NoteEditor({
           <select
             value={selectedNotebook}
             onChange={(e) => setSelectedNotebook(e.target.value)}
+            disabled={isCreating}
             className="px-3 py-2 rounded-md text-sm bg-gray-100 dark-amoled:bg-gray-900 border border-gray-200 dark-amoled:border-gray-800"
           >
             <option value="">All Notes</option>
@@ -1039,6 +1199,7 @@ function NoteEditor({
           placeholder="Start writing your note..."
           value={content}
           onChange={(e) => setContent(e.target.value)}
+          disabled={isCreating}
           className="h-full resize-none border-none focus-visible:ring-0 bg-transparent"
         />
       </div>
@@ -1064,6 +1225,7 @@ function NoteEditor({
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={handleTagInput}
+            disabled={isCreating}
             className="bg-gray-100 dark-amoled:bg-gray-900"
           />
         </div>

@@ -3,20 +3,20 @@
  * Supports filtering, sorting, and highlighting matches.
  */
 
-import Fuse from "fuse.js";
+import Fuse, { type FuseResultMatch, type IFuseOptions } from "fuse.js";
 import type { Note, SearchFilters, SortBy, SortOrder } from "../types/note";
 
 export interface SearchResult {
   note: Note;
   score?: number;
-  matches?: readonly Fuse.FuseResultMatch[];
+  matches?: readonly FuseResultMatch[];
 }
 
 export class NoteSearchService {
   private fuse: Fuse<Note> | null = null;
   private notes: Note[] = [];
 
-  private readonly fuseOptions: Fuse.IFuseOptions<Note> = {
+  private readonly fuseOptions: IFuseOptions<Note> = {
     keys: [
       { name: "title", weight: 2 },
       { name: "content", weight: 1 },

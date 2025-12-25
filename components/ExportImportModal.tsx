@@ -3,7 +3,7 @@
  */
 
 import { useState, useRef } from "react";
-import { X, Download, Upload, FileJson, FileText, Archive } from "lucide-react";
+import { X, Upload, FileJson, FileText, Archive } from "lucide-react";
 import { Button } from "./ui/button";
 import type { Note, Notebook, Tag } from "../types/note";
 import {
