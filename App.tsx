@@ -103,6 +103,8 @@ export default function App() {
   const [noteToDelete, setNoteToDelete] = useState<Note | null>(null);
   const [notebookToDelete, setNotebookToDelete] = useState<NotebookType | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
 
   // Theme
   const [theme, setTheme] = useState<ThemeMode>("system");
@@ -346,16 +348,43 @@ export default function App() {
 
   const handleCreateNote = async (templateNote?: Note) => {
     try {
-      let newNote: Note;
+      // Create optimistic note immediately
+      const tempId = `temp-${Date.now()}`;
+      const optimisticNote: Note = templateNote ? {
+        ...createNoteFromTemplate(templateNote, userEmail ?? undefined),
+        id: tempId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } : {
+        id: tempId,
+        title: "",
+        content: "",
+        notebookId: selectedNotebook || undefined,
+        tags: [],
+        pinned: false,
+        starred: false,
+        archived: false,
+        isTemplate: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      // Show note immediately
+      setSelectedNote(optimisticNote);
+      setActivePanel("notes");
+
+      // Create in background
+      let realNote: Note;
       if (templateNote) {
         const created = createNoteFromTemplate(templateNote, userEmail ?? undefined);
-        newNote = await addNote(created.notebookId);
-        await updateNote(newNote.id, { ...newNote, ...created });
+        realNote = await addNote(created.notebookId);
+        await updateNote(realNote.id, { ...realNote, ...created });
       } else {
-        newNote = await addNote(selectedNotebook || undefined);
+        realNote = await addNote(selectedNotebook || undefined);
       }
-      setSelectedNote(newNote);
-      setActivePanel("notes");
+
+      // Replace optimistic note with real one
+      setSelectedNote(realNote);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create note";
       setAuthError(msg);
@@ -416,6 +445,28 @@ export default function App() {
     if (selectedNotebook === notebookToDelete?.id) {
       setSelectedNotebook(null);
     }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedNoteIds.size === 0) return;
+    if (!confirm(`Delete ${selectedNoteIds.size} note(s)?`)) return;
+    
+    selectedNoteIds.forEach(id => deleteNote(id));
+    setSelectedNoteIds(new Set());
+    setIsMultiSelectMode(false);
+    if (selectedNote && selectedNoteIds.has(selectedNote.id)) {
+      setSelectedNote(null);
+    }
+  };
+
+  const toggleNoteSelection = (noteId: string) => {
+    const newSet = new Set(selectedNoteIds);
+    if (newSet.has(noteId)) {
+      newSet.delete(noteId);
+    } else {
+      newSet.add(noteId);
+    }
+    setSelectedNoteIds(newSet);
   };
 
   const handleImport = async (result: ImportResult) => {
@@ -1020,6 +1071,49 @@ export default function App() {
             <div className="flex flex-1 overflow-hidden">
               {/* Notes List */}
               <div className="w-80 border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col animate-fade-slide">
+                {/* Multiselect toolbar */}
+                {activePanel === "notes" && filteredNotes.length > 0 && (
+                  <div className="p-2 border-b border-gray-200 dark-amoled:border-gray-900 flex items-center gap-2">
+                    {!isMultiSelectMode ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsMultiSelectMode(true)}
+                        className="text-xs"
+                      >
+                        Select Multiple
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setIsMultiSelectMode(false);
+                            setSelectedNoteIds(new Set());
+                          }}
+                          className="text-xs"
+                        >
+                          Cancel
+                        </Button>
+                        <span className="text-xs text-gray-600 dark-amoled:text-gray-400">
+                          {selectedNoteIds.size} selected
+                        </span>
+                        {selectedNoteIds.size > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleBulkDelete}
+                            className="text-xs text-red-600 hover:text-red-700 ml-auto"
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Delete
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                   {activePanel !== "notes" ? (
                     <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
@@ -1033,30 +1127,66 @@ export default function App() {
                     <div className="divide-y divide-gray-200 dark-amoled:divide-gray-900">
                       {filteredNotes.map((note) => {
                         const isSelected = selectedNote?.id === note.id;
+                        const isChecked = selectedNoteIds.has(note.id);
                         const title = note.title || "Untitled";
                         const preview = note.content.length > 80 ? note.content.slice(0, 80) + "…" : note.content;
                         return (
-                          <button
+                          <div
                             key={note.id}
-                            className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-all duration-200 ${
+                            className={`relative group w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-all duration-200 ${
                               isSelected ? "bg-gray-100 dark-amoled:bg-gray-950 border-l-2 border-blue-500" : ""
+                            } ${
+                              isChecked ? "bg-blue-50 dark-amoled:bg-blue-950/50" : ""
                             }`}
-                            onClick={() => {
-                              setSelectedNote(note);
-                            }}
                           >
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="font-medium truncate flex items-center gap-2">
-                                {note.pinned && <Pin className="h-3 w-3 text-blue-500 animate-pulse-slow" />}
-                                {note.starred && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}
-                                {title}
-                              </div>
-                              <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
-                                {new Date(note.updatedAt).toLocaleDateString()}
-                              </div>
+                            <div className="flex items-start gap-2">
+                              {isMultiSelectMode && (
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => toggleNoteSelection(note.id)}
+                                  className="mt-1 cursor-pointer"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              )}
+                              <button
+                                className="flex-1 text-left"
+                                onClick={() => {
+                                  if (isMultiSelectMode) {
+                                    toggleNoteSelection(note.id);
+                                  } else {
+                                    setSelectedNote(note);
+                                  }
+                                }}
+                              >
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="font-medium truncate flex items-center gap-2">
+                                    {note.pinned && <Pin className="h-3 w-3 text-blue-500 animate-pulse-slow" />}
+                                    {note.starred && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}
+                                    {title}
+                                  </div>
+                                  <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
+                                    {new Date(note.updatedAt).toLocaleDateString()}
+                                  </div>
+                                </div>
+                                <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
+                              </button>
+                              {!isMultiSelectMode && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteNote(note);
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 text-red-600 hover:text-red-700 shrink-0"
+                                  title="Delete note"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
                             </div>
-                            <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1227,11 +1357,36 @@ function NoteEditor({
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-save with debounce
+  // Fast title save (300ms debounce for instant feedback)
   useEffect(() => {
-    if (title === note.title && content === note.content && selectedNotebook === note.notebookId) {
+    if (title === note.title) return;
+
+    setHasUnsavedChanges(true);
+
+    if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
+
+    titleTimeoutRef.current = setTimeout(() => {
+      onSave({
+        ...note,
+        title: title.trim() || "Untitled",
+        content,
+        notebookId: selectedNotebook || undefined,
+        tags: selectedTags,
+        updatedAt: Date.now(),
+      });
+    }, 300); // 300ms for title
+
+    return () => {
+      if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
+    };
+  }, [title]);
+
+  // Auto-save content with standard debounce
+  useEffect(() => {
+    if (content === note.content && selectedNotebook === note.notebookId && JSON.stringify(selectedTags) === JSON.stringify(note.tags)) {
       setHasUnsavedChanges(false);
       return;
     }
@@ -1244,7 +1399,7 @@ function NoteEditor({
       setIsSaving(true);
       onSave({
         ...note,
-        title: title.trim(),
+        title: title.trim() || "Untitled",
         content: content.trim(),
         notebookId: selectedNotebook || undefined,
         tags: selectedTags,
@@ -1254,12 +1409,12 @@ function NoteEditor({
         setLastSaved(Date.now());
         setHasUnsavedChanges(false);
       });
-    }, 1000);
+    }, 800); // 800ms for content
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [title, content, selectedNotebook, selectedTags]);
+  }, [content, selectedNotebook, selectedTags]);
 
   // Detect Ctrl/Cmd key press for wiki-link activation
   useEffect(() => {
@@ -1283,10 +1438,11 @@ function NoteEditor({
 
   const handleManualSave = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
     setIsSaving(true);
     onSave({
       ...note,
-      title: title.trim(),
+      title: title.trim() || "Untitled",
       content: content.trim(),
       notebookId: selectedNotebook || undefined,
       tags: selectedTags,
