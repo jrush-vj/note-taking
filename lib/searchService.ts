@@ -99,23 +99,23 @@ export class NoteSearchService {
 
     // Apply filters
     results = results.filter(({ note }) => {
-      // Pinned filter
-      if (filters.pinned !== undefined && note.pinned !== filters.pinned) {
+      // Pinned filter (treat undefined as false)
+      if (filters.pinned !== undefined && Boolean(note.pinned) !== filters.pinned) {
         return false;
       }
 
-      // Starred filter
-      if (filters.starred !== undefined && note.starred !== filters.starred) {
+      // Starred filter (treat undefined as false)
+      if (filters.starred !== undefined && Boolean(note.starred) !== filters.starred) {
         return false;
       }
 
-      // Archived filter
-      if (filters.archived !== undefined && note.archived !== filters.archived) {
+      // Archived filter (treat undefined as false)
+      if (filters.archived !== undefined && Boolean(note.archived) !== filters.archived) {
         return false;
       }
 
-      // Templates filter
-      if (filters.templates !== undefined && note.isTemplate !== filters.templates) {
+      // Templates filter (treat undefined as false)
+      if (filters.templates !== undefined && Boolean(note.isTemplate) !== filters.templates) {
         return false;
       }
 

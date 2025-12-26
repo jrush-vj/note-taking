@@ -280,6 +280,10 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
         content: "",
         notebookId,
         tags: [],
+        pinned: false,
+        starred: false,
+        archived: false,
+        isTemplate: false,
         createdAt: new Date(insertRes.data.created_at).getTime(),
         updatedAt: new Date(insertRes.data.updated_at).getTime(),
       };

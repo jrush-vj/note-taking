@@ -1112,12 +1112,19 @@ export default function App() {
               note={selectedNoteFull}
               notebooks={notebooks}
               tags={tags}
+              allNotes={notes}
               onSave={handleSaveNote}
               onTogglePinned={() => handleTogglePinned(selectedNoteFull)}
               onToggleStarred={() => handleToggleStarred(selectedNoteFull)}
               onToggleArchived={() => handleToggleArchived(selectedNoteFull)}
               onDelete={() => handleDeleteNote(selectedNoteFull)}
               onCancel={() => setSelectedNote(null)}
+              onNavigateToNote={(noteId) => {
+                const targetNote = notes.find((n) => n.id === noteId);
+                if (targetNote) {
+                  setSelectedNote(targetNote);
+                }
+              }}
               addTag={addTag}
             />
           ) : (
@@ -1186,23 +1193,27 @@ function NoteEditor({
   note,
   notebooks,
   tags,
+  allNotes,
   onSave,
   onTogglePinned,
   onToggleStarred,
   onToggleArchived,
   onDelete,
   onCancel,
+  onNavigateToNote,
   addTag,
 }: {
   note: Note;
   notebooks: NotebookType[];
   tags: TagType[];
+  allNotes: Note[];
   onSave: (note: Note) => Promise<void>;
   onTogglePinned: () => void;
   onToggleStarred: () => void;
   onToggleArchived: () => void;
   onDelete: () => void;
   onCancel: () => void;
+  onNavigateToNote: (noteId: string) => void;
   addTag: (name: string) => Promise<string>;
 }) {
   const [title, setTitle] = useState(note.title);
@@ -1213,8 +1224,10 @@ function NoteEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-save with debounce
   useEffect(() => {
@@ -1248,6 +1261,26 @@ function NoteEditor({
     };
   }, [title, content, selectedNotebook, selectedTags]);
 
+  // Detect Ctrl/Cmd key press for wiki-link activation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        setIsCtrlPressed(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.ctrlKey && !e.metaKey) {
+        setIsCtrlPressed(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   const handleManualSave = () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     setIsSaving(true);
@@ -1277,6 +1310,40 @@ function NoteEditor({
   const removeTag = (tagId: string) => {
     setSelectedTags((prev) => prev.filter((id) => id !== tagId));
   };
+
+  // Extract wiki-links from content
+  const extractWikiLinks = (text: string): Array<{ title: string; start: number; end: number }> => {
+    const links: Array<{ title: string; start: number; end: number }> = [];
+    const regex = /\[\[([^\]]+)\]\]/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const title = match[1]?.split("|")[0]?.trim();
+      if (title) {
+        links.push({
+          title,
+          start: match.index,
+          end: match.index + match[0].length,
+        });
+      }
+    }
+    return links;
+  };
+
+  // Handle wiki-link click
+  const handleWikiLinkClick = (linkTitle: string) => {
+    // Find note by title (case-insensitive)
+    const targetNote = allNotes.find(
+      (n) => n.title.toLowerCase() === linkTitle.toLowerCase()
+    );
+    if (targetNote) {
+      onNavigateToNote(targetNote.id);
+    } else {
+      // Note doesn't exist, could create it here
+      alert(`Note "${linkTitle}" not found. Create it first!`);
+    }
+  };
+
+  const wikiLinks = extractWikiLinks(content);
 
   return (
     <div className="flex flex-col h-full animate-scale-in">
@@ -1358,13 +1425,56 @@ function NoteEditor({
         </div>
       </div>
 
-      <div className="flex-1 p-4 overflow-y-auto custom-scrollbar">
+      <div className="flex-1 p-4 overflow-y-auto custom-scrollbar relative">
         <Textarea
-          placeholder="Start writing your note... Use [[Note Title]] to link notes"
+          ref={textareaRef}
+          placeholder="Start writing your note... Use [[Note Title]] to link notes. Hold Ctrl/Cmd and click links to navigate."
           value={content}
           onChange={(e) => setContent(e.target.value)}
           className="h-full resize-none border-none focus-visible:ring-0 bg-transparent placeholder:text-gray-400"
         />
+        {/* Wiki-link overlay - shows when Ctrl/Cmd is pressed */}
+        {isCtrlPressed && wikiLinks.length > 0 && (
+          <div className="absolute inset-0 p-4 pointer-events-none">
+            <div className="relative w-full h-full whitespace-pre-wrap break-words font-mono text-sm">
+              {(() => {
+                const parts: React.ReactNode[] = [];
+                let lastIndex = 0;
+                wikiLinks.forEach((link, idx) => {
+                  // Text before link
+                  if (link.start > lastIndex) {
+                    parts.push(
+                      <span key={`text-${idx}`} className="invisible">
+                        {content.slice(lastIndex, link.start)}
+                      </span>
+                    );
+                  }
+                  // Clickable link
+                  const linkText = content.slice(link.start, link.end);
+                  parts.push(
+                    <button
+                      key={`link-${idx}`}
+                      onClick={() => handleWikiLinkClick(link.title)}
+                      className="pointer-events-auto text-blue-600 dark-amoled:text-blue-400 hover:underline cursor-pointer bg-blue-50 dark-amoled:bg-blue-950 px-1 rounded"
+                    >
+                      {linkText}
+                    </button>
+                  );
+                  lastIndex = link.end;
+                });
+                // Remaining text
+                if (lastIndex < content.length) {
+                  parts.push(
+                    <span key="text-end" className="invisible">
+                      {content.slice(lastIndex)}
+                    </span>
+                  );
+                }
+                return parts;
+              })()}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="p-4 border-t border-gray-200 dark-amoled:border-gray-900 glass">
