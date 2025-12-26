@@ -2,6 +2,8 @@
 
 A blazingly fast, local-first note-taking application built with **Tauri** + **React** + **TypeScript** + **SQLite**.
 
+> **🎯 Focus**: Web, Windows, and Linux platforms only. The same codebase builds for all three targets.
+
 ## 🚀 Features
 
 - **Zero Latency**: All operations run locally (1-5ms vs 200-400ms cloud)
@@ -16,6 +18,38 @@ A blazingly fast, local-first note-taking application built with **Tauri** + **R
   - 🎨 Templates for quick note creation
   - 🌓 Dark mode (AMOLED)
   - 💾 Import/Export functionality
+  - ⌨️ Command palette (Cmd/Ctrl+K)
+  - 🎯 Drag & drop notes between notebooks
+
+## 📁 Project Structure
+
+```
+note-taking/
+├── src/
+│   ├── components/       # React components
+│   │   ├── ui/          # Reusable UI components
+│   │   ├── CommandPalette.tsx
+│   │   ├── GraphView.tsx
+│   │   ├── GraphView3D.tsx
+│   │   ├── TemplateManager.tsx
+│   │   └── ExportImportModal.tsx
+│   ├── hooks/           # Custom React hooks
+│   ├── lib/             # Core libraries (database, search, etc.)
+│   ├── types/           # TypeScript type definitions
+│   ├── utils/           # Utility functions
+│   ├── styles/          # Global styles
+│   ├── App.tsx          # Main application component
+│   └── main.tsx         # Application entry point
+├── src-tauri/           # Tauri Rust backend
+│   ├── src/
+│   ├── Cargo.toml
+│   └── tauri.conf.json
+├── index.html
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── README.md
+```
 
 ## 📦 Installation
 

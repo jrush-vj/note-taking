@@ -16,12 +16,14 @@ export interface Note {
 export interface Notebook {
   id: string;
   name: string;
+  color?: string;
   createdAt: number;
 }
 
 export interface Tag {
   id: string;
   name: string;
+  color?: string;
   createdAt: number;
 }
 
