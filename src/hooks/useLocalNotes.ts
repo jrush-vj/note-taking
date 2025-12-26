@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { localDb } from '../lib/localDb';
+import { db } from '../lib/db';
 import type { Note, Notebook, Tag } from '../types/note';
 
 export function useLocalNotes() {
@@ -18,9 +18,9 @@ export function useLocalNotes() {
     try {
       setLoading(true);
       const [notesData, notebooksData, tagsData] = await Promise.all([
-        localDb.getAllNotes(),
-        localDb.getAllNotebooks(),
-        localDb.getAllTags(),
+        db.getAllNotes(),
+        db.getAllNotebooks(),
+        db.getAllTags(),
       ]);
       
       setNotes(notesData);
@@ -38,7 +38,7 @@ export function useLocalNotes() {
   // NOTES
   const addNote = async (note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>) => {
     try {
-      const newNote = await localDb.createNote(note);
+      const newNote = await db.createNote(note);
       setNotes(prev => [newNote, ...prev]);
       return newNote;
     } catch (err) {
@@ -49,7 +49,7 @@ export function useLocalNotes() {
 
   const updateNote = async (id: string, updates: Partial<Omit<Note, 'id' | 'createdAt' | 'updatedAt'>>) => {
     try {
-      await localDb.updateNote(id, updates);
+      await db.updateNote(id, updates);
       setNotes(prev =>
         prev.map(note =>
           note.id === id
@@ -65,7 +65,7 @@ export function useLocalNotes() {
 
   const deleteNote = async (id: string) => {
     try {
-      await localDb.deleteNote(id);
+      await db.deleteNote(id);
       setNotes(prev => prev.filter(note => note.id !== id));
     } catch (err) {
       console.error('Failed to delete note:', err);
@@ -75,7 +75,7 @@ export function useLocalNotes() {
 
   const searchNotes = async (query: string): Promise<Note[]> => {
     try {
-      return await localDb.searchNotes(query);
+      return await db.searchNotes(query);
     } catch (err) {
       console.error('Failed to search notes:', err);
       return [];
@@ -85,7 +85,7 @@ export function useLocalNotes() {
   // NOTEBOOKS
   const addNotebook = async (name: string, color: string = '#3b82f6') => {
     try {
-      const newNotebook = await localDb.createNotebook({ name, color });
+      const newNotebook = await db.createNotebook({ name, color });
       setNotebooks(prev => [...prev, newNotebook]);
       return newNotebook;
     } catch (err) {
@@ -96,7 +96,7 @@ export function useLocalNotes() {
 
   const deleteNotebook = async (id: string) => {
     try {
-      await localDb.deleteNotebook(id);
+      await db.deleteNotebook(id);
       setNotebooks(prev => prev.filter(nb => nb.id !== id));
       // Update notes that were in this notebook
       setNotes(prev =>
@@ -113,7 +113,7 @@ export function useLocalNotes() {
   // TAGS
   const addTag = async (name: string, color: string = '#8b5cf6') => {
     try {
-      const newTag = await localDb.createTag({ name, color });
+      const newTag = await db.createTag({ name, color });
       setTags(prev => [...prev, newTag]);
       return newTag;
     } catch (err) {
@@ -124,7 +124,7 @@ export function useLocalNotes() {
 
   const deleteTag = async (id: string) => {
     try {
-      await localDb.deleteTag(id);
+      await db.deleteTag(id);
       setTags(prev => prev.filter(tag => tag.id !== id));
     } catch (err) {
       console.error('Failed to delete tag:', err);

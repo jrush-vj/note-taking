@@ -1,8 +1,17 @@
-import Database from '@tauri-apps/plugin-sql';
 import type { Note, Notebook, Tag } from '../types/note';
 
+// Dynamically import Tauri SQL only when available
+let Database: any = null;
+try {
+  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+    Database = await import('@tauri-apps/plugin-sql').then(m => m.default);
+  }
+} catch (e) {
+  console.log('Running in browser mode');
+}
+
 class LocalDatabase {
-  private db: Database | null = null;
+  private db: any = null;
 
   // Convert database row to Note type
   private dbRowToNote(row: any): Note {
@@ -20,6 +29,12 @@ class LocalDatabase {
   }
 
   async initialize() {
+    // Only initialize if we have the Database (Tauri environment)
+    if (!Database) {
+      console.log('Tauri SQL not available, skipping localDb initialization');
+      return;
+    }
+    
     // Load SQLite database (will be created if it doesn't exist)
     this.db = await Database.load('sqlite:notes.db');
     
@@ -121,12 +136,12 @@ class LocalDatabase {
   async getAllNotes(): Promise<Note[]> {
     if (!this.db) throw new Error('Database not initialized');
     
-    const result = await this.db.select<any[]>(`
+    const result: any[] = await this.db.select(`
       SELECT * FROM notes 
       ORDER BY pinned DESC, updated_at DESC
     `);
     
-    return result.map(row => this.dbRowToNote(row));
+    return result.map((row: any) => this.dbRowToNote(row));
   }
 
   async createNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>): Promise<Note> {
@@ -201,7 +216,7 @@ class LocalDatabase {
   async searchNotes(query: string): Promise<Note[]> {
     if (!this.db) throw new Error('Database not initialized');
     
-    const result = await this.db.select<any[]>(
+    const result: any[] = await this.db.select(
       `SELECT n.* FROM notes n
        JOIN notes_fts fts ON n.id = fts.id
        WHERE notes_fts MATCH $1
@@ -210,13 +225,14 @@ class LocalDatabase {
       [query]
     );
     
-    return result.map(row => this.dbRowToNote(row));
+    return result.map((row: any) => this.dbRowToNote(row));
   }
 
   // NOTEBOOKS
   async getAllNotebooks(): Promise<Notebook[]> {
     if (!this.db) throw new Error('Database not initialized');
-    return await this.db.select<Notebook[]>('SELECT * FROM notebooks ORDER BY name ASC');
+    const result: any[] = await this.db.select('SELECT * FROM notebooks ORDER BY name ASC');
+    return result;
   }
 
   async createNotebook(notebook: Omit<Notebook, 'id' | 'createdAt'>): Promise<Notebook> {
@@ -243,7 +259,8 @@ class LocalDatabase {
   // TAGS
   async getAllTags(): Promise<Tag[]> {
     if (!this.db) throw new Error('Database not initialized');
-    return await this.db.select<Tag[]>('SELECT * FROM tags ORDER BY name ASC');
+    const result: any[] = await this.db.select('SELECT * FROM tags ORDER BY name ASC');
+    return result;
   }
 
   async createTag(tag: Omit<Tag, 'id' | 'createdAt'>): Promise<Tag> {
@@ -282,17 +299,45 @@ class LocalDatabase {
     );
   }
 
-  async getTagsForNote(noteId: string): Promise<Tag[]> {
+  async getTagObjectsForNote(noteId: string): Promise<Tag[]> {
     if (!this.db) throw new Error('Database not initialized');
     
-    return await this.db.select<Tag[]>(
+    const result: any[] = await this.db.select(
       `SELECT t.* FROM tags t
        JOIN note_tags nt ON t.id = nt.tag_id
        WHERE nt.note_id = $1
        ORDER BY t.name ASC`,
       [noteId]
     );
+    return result;
+  }
+
+  async getTagsForNote(noteId: string): Promise<string[]> {
+    return this.getNoteTagIds(noteId);
+  }
+
+  async setTagsForNote(noteId: string, tagIds: string[]): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    // First, remove all existing tags for this note
+    await this.db.execute('DELETE FROM note_tags WHERE note_id = $1', [noteId]);
+    
+    // Then add all new tags
+    for (const tagId of tagIds) {
+      await this.addTagToNote(noteId, tagId);
+    }
+  }
+
+  async getNoteTagIds(noteId: string): Promise<string[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const result: any[] = await this.db.select(
+      'SELECT tag_id FROM note_tags WHERE note_id = $1',
+      [noteId]
+    );
+    return result.map((row: any) => row.tag_id);
   }
 }
 
 export const localDb = new LocalDatabase();
+
