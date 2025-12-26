@@ -2,7 +2,7 @@
  * Export/Import Modal
  */
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Upload, FileJson, FileText, Archive } from "lucide-react";
 import { Button } from "./ui/button";
 import type { Note, Notebook, Tag } from "../types/note";
@@ -12,11 +12,12 @@ import {
   exportAllAsZip,
   importFromFile,
   type ImportResult,
-} from "../utils/exportImport"; // Update the path to the correct location
+} from "../lib/exportImport";
 
 interface ExportImportModalProps {
   isOpen: boolean;
   onClose: () => void;
+  defaultTab?: "export" | "import";
   notes: Note[];
   notebooks: Notebook[];
   tags: Tag[];
@@ -27,6 +28,7 @@ interface ExportImportModalProps {
 export function ExportImportModal({
   isOpen,
   onClose,
+  defaultTab,
   notes,
   notebooks,
   tags,
@@ -37,6 +39,14 @@ export function ExportImportModal({
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // When opened via a specific action (e.g. "Add existing"), start on that tab.
+  // Keep behavior stable when reopening without a default.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!defaultTab) return;
+    setTab(defaultTab);
+  }, [defaultTab, isOpen]);
 
   if (!isOpen) return null;
 

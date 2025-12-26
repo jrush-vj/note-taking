@@ -11,7 +11,7 @@
  * - View modes
  */
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -29,6 +29,10 @@ import {
   FileText,
   Download,
   Sparkles,
+  Tags,
+  Calendar,
+  Upload,
+  Network,
 } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
@@ -69,6 +73,7 @@ import {
 import { createNoteFromTemplate } from "./lib/templates";
 import { type ImportResult } from "./lib/exportImport";
 import type { Note, Notebook as NotebookType, Tag as TagType, SearchFilters, AppPreferences, ThemeMode } from "./types/note";
+import { GraphView } from "./components/GraphView";
 
 export default function App() {
   const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null>(null);
@@ -102,8 +107,14 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
+  // Desktop layout state
+  const [leftSection, setLeftSection] = useState<"folders" | "tags" | "calendar" | "templates" | "settings">("folders");
+  const [topView, setTopView] = useState<"folder" | "graph">("folder");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({
     query: "",
     archived: false,
@@ -113,6 +124,7 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [isExportImportOpen, setIsExportImportOpen] = useState(false);
+  const [exportImportDefaultTab, setExportImportDefaultTab] = useState<"export" | "import" | undefined>(undefined);
 
   // Search service
   const searchService = useRef(new NoteSearchService([]));
@@ -407,8 +419,41 @@ export default function App() {
   const handleImport = async (result: ImportResult) => {
     if (!result.success || !result.notes) return;
 
-    for (const note of result.notes) {
-      await addNote(note.notebookId);
+    for (const incoming of result.notes) {
+      const created = await addNote(incoming.notebookId);
+
+      // Ensure tags exist and attach them.
+      const incomingTags = (incoming.tags ?? []).filter(Boolean);
+      const resolvedTagIds: string[] = [];
+      for (const tagIdOrName of incomingTags) {
+        // Imported bundles may contain tag IDs; if they don't exist locally, treat as name.
+        const existingById = tags.find((t) => t.id === tagIdOrName);
+        if (existingById) {
+          resolvedTagIds.push(existingById.id);
+          continue;
+        }
+        const existingByName = tags.find((t) => t.name.toLowerCase() === tagIdOrName.toLowerCase());
+        if (existingByName) {
+          resolvedTagIds.push(existingByName.id);
+          continue;
+        }
+        const newTagId = await addTag(tagIdOrName);
+        resolvedTagIds.push(newTagId);
+      }
+
+      await updateNote(created.id, {
+        ...created,
+        title: (incoming.title ?? "").trim(),
+        content: incoming.content ?? "",
+        notebookId: incoming.notebookId,
+        tags: resolvedTagIds,
+        pinned: Boolean(incoming.pinned),
+        starred: Boolean(incoming.starred),
+        archived: Boolean(incoming.archived),
+        isTemplate: Boolean(incoming.isTemplate),
+        templateVariables: incoming.templateVariables,
+        updatedAt: Date.now(),
+      });
     }
   };
 
@@ -493,9 +538,23 @@ export default function App() {
 
   // Search results
   const searchResults = useMemo(() => {
-    const filters = { ...searchFilters, query: searchQuery };
+    const dayRange = (() => {
+      if (!selectedDate) return null;
+      const start = new Date(`${selectedDate}T00:00:00.000Z`).getTime();
+      const end = start + 24 * 60 * 60 * 1000 - 1;
+      return { start, end };
+    })();
+
+    const filters: SearchFilters = {
+      ...searchFilters,
+      query: deferredSearchQuery,
+      notebookId: activePanel === "notes" && selectedNotebook ? selectedNotebook : undefined,
+      tagIds: activePanel === "notes" && selectedTag ? [selectedTag] : undefined,
+      dateFrom: activePanel === "notes" && leftSection === "calendar" && dayRange ? dayRange.start : searchFilters.dateFrom,
+      dateTo: activePanel === "notes" && leftSection === "calendar" && dayRange ? dayRange.end : searchFilters.dateTo,
+    };
     return searchService.current.search(filters);
-  }, [searchQuery, searchFilters, notes]);
+  }, [activePanel, deferredSearchQuery, leftSection, notes, searchFilters, selectedDate, selectedNotebook, selectedTag]);
 
   const filteredNotes = searchResults.map(r => r.note);
 
@@ -562,225 +621,415 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 dark-amoled:bg-black text-gray-900 dark-amoled:text-white transition-colors duration-300">
       <div className="flex h-screen overflow-hidden">
-        {/* Sidebar */}
+        {/* Left icon rail */}
+        <div className="w-14 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col items-center py-2 gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 p-0"
+            title="New note"
+            onClick={() => {
+              setActivePanel("notes");
+              setTopView("folder");
+              setLeftSection("folders");
+              void handleCreateNote();
+            }}
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 p-0"
+            title="Add existing (import)"
+            onClick={() => {
+              setExportImportDefaultTab("import");
+              setIsExportImportOpen(true);
+            }}
+          >
+            <Upload className="h-5 w-5" />
+          </Button>
+
+          <div className="my-1 h-px w-9 bg-gray-200 dark-amoled:bg-gray-900" />
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-10 w-10 p-0 ${leftSection === "folders" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            title="Folders"
+            onClick={() => {
+              setActivePanel("notes");
+              setTopView("folder");
+              setLeftSection("folders");
+            }}
+          >
+            <Notebook className="h-5 w-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-10 w-10 p-0 ${leftSection === "tags" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            title="Tags"
+            onClick={() => {
+              setActivePanel("notes");
+              setTopView("folder");
+              setLeftSection("tags");
+            }}
+          >
+            <Tags className="h-5 w-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={`h-10 w-10 p-0 ${leftSection === "calendar" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            title="Calendar"
+            onClick={() => {
+              setActivePanel("notes");
+              setTopView("folder");
+              setLeftSection("calendar");
+            }}
+          >
+            <Calendar className="h-5 w-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-10 w-10 p-0"
+            title="Templates"
+            onClick={() => {
+              setActivePanel("notes");
+              setTopView("folder");
+              setLeftSection("templates");
+              setIsTemplateManagerOpen(true);
+            }}
+          >
+            <Sparkles className="h-5 w-5" />
+          </Button>
+
+          <div className="mt-auto flex flex-col items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-10 w-10 p-0 ${leftSection === "settings" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+              title="Settings"
+              onClick={() => {
+                setLeftSection("settings");
+                setActivePanel("account");
+                setSelectedNote(null);
+              }}
+            >
+              <Settings className="h-5 w-5" />
+            </Button>
+
+            <Button variant="ghost" size="sm" className="h-10 w-10 p-0" title="Toggle theme" onClick={cycleTheme}>
+              {theme === "dark-amoled" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+          </div>
+        </div>
+
+        {/* Side panel */}
         {isSidebarOpen && (
           <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide opacity-70">Folders</h2>
-              <Button variant="ghost" size="sm" onClick={handleCreateNotebook} className="h-8 w-8 p-0">
-                <Plus className="h-4 w-4" />
-              </Button>
+              <div className="text-sm font-semibold uppercase tracking-wide opacity-70">
+                {leftSection === "folders"
+                  ? "Folder View"
+                  : leftSection === "tags"
+                  ? "Tags"
+                  : leftSection === "calendar"
+                  ? "Calendar"
+                  : leftSection === "templates"
+                  ? "Templates"
+                  : "Settings"}
+              </div>
+              {leftSection === "folders" ? (
+                <Button variant="ghost" size="sm" onClick={handleCreateNotebook} className="h-8 w-8 p-0" title="New folder">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              ) : null}
             </div>
 
-            <div className="space-y-2">
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  !selectedNotebook && activePanel === "notes"
-                    ? "bg-blue-100 dark-amoled:bg-blue-950"
-                    : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("notes");
-                  setSelectedNotebook(null);
-                  setSelectedTag(null);
-                  setSearchFilters({ query: "", archived: false });
-                }}
-              >
-                <Notebook className="h-4 w-4" />
-                <span>All Notes</span>
-              </button>
+            {leftSection === "folders" ? (
+              <div className="space-y-2">
+                <button
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
+                    !selectedNotebook && activePanel === "notes"
+                      ? "bg-blue-100 dark-amoled:bg-blue-950"
+                      : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
+                  }`}
+                  onClick={() => {
+                    setActivePanel("notes");
+                    setSelectedNotebook(null);
+                    setSelectedTag(null);
+                    setSelectedDate("");
+                    setSearchFilters((prev) => ({ ...prev, archived: false }));
+                  }}
+                >
+                  <Notebook className="h-4 w-4" />
+                  <span>All Notes</span>
+                </button>
 
-              {notebooks.map((notebook) => (
-                <div key={notebook.id} className="flex items-center gap-1">
-                  <button
-                    className={`flex-1 text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                      selectedNotebook === notebook.id && activePanel === "notes"
-                        ? "bg-blue-100 dark-amoled:bg-blue-950"
-                        : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                    }`}
-                    onClick={() => {
-                      setActivePanel("notes");
-                      setSelectedNotebook(notebook.id);
-                      setSelectedTag(null);
-                    }}
-                  >
-                    <Notebook className="h-4 w-4" />
-                    <span className="truncate">{notebook.name}</span>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNotebook(notebook);
-                    }}
-                    className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wide opacity-70 mb-2">Tags</h3>
-              <div className="space-y-1">
-                {tags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    className={`w-full text-left px-3 py-2 rounded-md text-sm hover-lift ${
-                      selectedTag === tag.id && activePanel === "notes"
-                        ? "bg-blue-100 dark-amoled:bg-blue-950"
-                        : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                    }`}
-                    onClick={() => {
-                      setActivePanel("notes");
-                      setSelectedTag(tag.id);
-                    }}
-                  >
-                    #{tag.name}
-                  </button>
+                {notebooks.map((notebook) => (
+                  <div key={notebook.id} className="flex items-center gap-1">
+                    <button
+                      className={`flex-1 text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
+                        selectedNotebook === notebook.id && activePanel === "notes"
+                          ? "bg-blue-100 dark-amoled:bg-blue-950"
+                          : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
+                      }`}
+                      onClick={() => {
+                        setActivePanel("notes");
+                        setSelectedNotebook(notebook.id);
+                        setSelectedTag(null);
+                        setSelectedDate("");
+                      }}
+                    >
+                      <Notebook className="h-4 w-4" />
+                      <span className="truncate">{notebook.name}</span>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteNotebook(notebook);
+                      }}
+                      className="h-8 w-8 p-0 text-red-500 hover:text-red-700"
+                      title="Delete folder"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 ))}
               </div>
-            </div>
-
-            <div className="mt-auto pt-3 border-t border-gray-200 dark-amoled:border-gray-900 space-y-1">
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  activePanel === "account" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("account");
-                  setSelectedNote(null);
-                }}
-              >
-                <Settings className="h-4 w-4" />
-                Account
-              </button>
-              <button
-                className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
-                  activePanel === "security" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                }`}
-                onClick={() => {
-                  setActivePanel("security");
-                  setSelectedNote(null);
-                }}
-              >
-                <Shield className="h-4 w-4" />
-                Security
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover:bg-gray-100 dark-amoled:hover:bg-gray-900 hover-lift"
-                onClick={cycleTheme}
-              >
-                {theme === "dark-amoled" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                {theme === "dark-amoled" ? "Light" : theme === "light" ? "System" : "Dark"}
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 dark-amoled:hover:bg-red-950/30 hover-lift"
-                onClick={signOut}
-              >
-                Sign out
-              </button>
-            </div>
+            ) : leftSection === "tags" ? (
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
+                {tags.length === 0 ? (
+                  <div className="text-sm text-gray-600 dark-amoled:text-gray-400">No tags yet.</div>
+                ) : (
+                  tags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      className={`w-full text-left px-3 py-2 rounded-md text-sm hover-lift ${
+                        selectedTag === tag.id && activePanel === "notes"
+                          ? "bg-blue-100 dark-amoled:bg-blue-950"
+                          : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
+                      }`}
+                      onClick={() => {
+                        setActivePanel("notes");
+                        setSelectedTag(tag.id);
+                        setSelectedNotebook(null);
+                        setSelectedDate("");
+                      }}
+                    >
+                      #{tag.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : leftSection === "calendar" ? (
+              <div className="space-y-3">
+                <div className="text-sm text-gray-600 dark-amoled:text-gray-400">Filter by updated date</div>
+                <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedDate("");
+                  }}
+                >
+                  Clear
+                </Button>
+              </div>
+            ) : leftSection === "templates" ? (
+              <div className="space-y-3">
+                <div className="text-sm text-gray-600 dark-amoled:text-gray-400">Create notes from presets or custom templates.</div>
+                <Button onClick={() => setIsTemplateManagerOpen(true)} className="w-full">
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Open Templates
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
+                    activePanel === "account" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
+                  }`}
+                  onClick={() => {
+                    setActivePanel("account");
+                    setSelectedNote(null);
+                  }}
+                >
+                  <Settings className="h-4 w-4" />
+                  Account
+                </button>
+                <button
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 hover-lift ${
+                    activePanel === "security" ? "bg-blue-100 dark-amoled:bg-blue-950" : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
+                  }`}
+                  onClick={() => {
+                    setActivePanel("security");
+                    setSelectedNote(null);
+                  }}
+                >
+                  <Shield className="h-4 w-4" />
+                  Security
+                </button>
+                <Button
+                  onClick={() => {
+                    setExportImportDefaultTab("export");
+                    setIsExportImportOpen(true);
+                  }}
+                  variant="outline"
+                  className="w-full justify-start"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export & Import
+                </Button>
+                <Button onClick={signOut} variant="outline" className="w-full justify-start text-red-600">
+                  Sign out
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Notes List */}
-        <div className="w-80 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
-          <div className="p-3 border-b border-gray-200 dark-amoled:border-gray-900">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+        {/* Main area (top bar + content) */}
+        <div className="flex-1 glass flex flex-col overflow-hidden">
+          {/* Top bar */}
+          <div className="h-12 border-b border-gray-200 dark-amoled:border-gray-900 flex items-center gap-3 px-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="h-9 w-9 p-0"
+              title={isSidebarOpen ? "Hide sidebar" : "Show sidebar"}
+            >
+              {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
+
+            {activePanel === "notes" ? (
+              <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                  className="md:hidden h-8 w-8 p-0"
+                  className={`${topView === "folder" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+                  onClick={() => setTopView("folder")}
                 >
-                  {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                  Folder View
                 </Button>
-                <h1 className="text-base font-semibold">
-                  {activePanel === "notes"
-                    ? selectedNotebook
-                      ? notebooks.find((n) => n.id === selectedNotebook)?.name || "Notes"
-                      : selectedTag
-                      ? `#${tags.find((t) => t.id === selectedTag)?.name}`
-                      : "All Notes"
-                    : activePanel === "account"
-                    ? "Account"
-                    : "Security"}
-                </h1>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`${topView === "graph" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+                  onClick={() => setTopView("graph")}
+                >
+                  <Network className="h-4 w-4 mr-2" />
+                  Graph View
+                </Button>
               </div>
-              {activePanel === "notes" && (
-                <div className="flex items-center gap-1">
-                  <Button onClick={() => setIsTemplateManagerOpen(true)} size="sm" variant="ghost" title="New from template">
-                    <Sparkles className="h-4 w-4" />
-                  </Button>
-                  <Button onClick={() => handleCreateNote()} size="sm">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </div>
+            ) : (
+              <div className="text-sm font-medium">
+                {activePanel === "account" ? "Account" : "Security"}
+              </div>
+            )}
 
-            {activePanel === "notes" && (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <div className="flex-1 flex justify-center">
+              <div className="relative w-full max-w-xl">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
-                  placeholder="Search notes..."
+                  placeholder="Search…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9 bg-white dark-amoled:bg-gray-950"
                 />
               </div>
-            )}
+            </div>
+
+            {activePanel === "notes" ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setIsTemplateManagerOpen(true)}
+                  size="sm"
+                  variant="ghost"
+                  title="New from template"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+                <Button onClick={() => void handleCreateNote()} size="sm" title="New note">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : null}
           </div>
 
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {activePanel !== "notes" ? (
-              <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
-                {activePanel === "account" ? "Manage your account settings on the right." : "Security and encryption controls are on the right."}
+          {/* Content row */}
+          {activePanel === "notes" && topView === "graph" ? (
+            <div className="flex-1 overflow-hidden">
+              <GraphView
+                notes={filteredNotes}
+                onOpenNote={(noteId) => {
+                  const n = notes.find((x) => x.id === noteId);
+                  if (n) {
+                    setSelectedNote(n);
+                    setTopView("folder");
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-1 overflow-hidden">
+              {/* Notes List */}
+              <div className="w-80 border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  {activePanel !== "notes" ? (
+                    <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
+                      {activePanel === "account"
+                        ? "Manage your account settings on the right."
+                        : "Security and encryption controls are on the right."}
+                    </div>
+                  ) : filteredNotes.length === 0 ? (
+                    <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">No notes found.</div>
+                  ) : (
+                    <div className="divide-y divide-gray-200 dark-amoled:divide-gray-900">
+                      {filteredNotes.map((note) => {
+                        const isSelected = selectedNote?.id === note.id;
+                        const title = note.title || "Untitled";
+                        const preview = note.content.length > 80 ? note.content.slice(0, 80) + "…" : note.content;
+                        return (
+                          <button
+                            key={note.id}
+                            className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-colors ${
+                              isSelected ? "bg-gray-100 dark-amoled:bg-gray-950" : ""
+                            }`}
+                            onClick={() => {
+                              setSelectedNote(note);
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <div className="font-medium truncate flex items-center gap-2">
+                                {note.pinned && <Pin className="h-3 w-3 text-blue-500" />}
+                                {note.starred && <Star className="h-3 w-3 text-yellow-500" />}
+                                {title}
+                              </div>
+                              <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
+                                {new Date(note.updatedAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : filteredNotes.length === 0 ? (
-              <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">No notes found.</div>
-            ) : (
-              <div className="divide-y divide-gray-200 dark-amoled:divide-gray-900">
-                {filteredNotes.map((note) => {
-                  const isSelected = selectedNote?.id === note.id;
-                  const title = note.title || "Untitled";
-                  const preview = note.content.length > 80 ? note.content.slice(0, 80) + "…" : note.content;
-                  return (
-                    <button
-                      key={note.id}
-                      className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-colors ${
-                        isSelected ? "bg-gray-100 dark-amoled:bg-gray-950" : ""
-                      }`}
-                      onClick={() => {
-                        setActivePanel("notes");
-                        setSelectedNote(note);
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="font-medium truncate flex items-center gap-2">
-                          {note.pinned && <Pin className="h-3 w-3 text-blue-500" />}
-                          {note.starred && <Star className="h-3 w-3 text-yellow-500" />}
-                          {title}
-                        </div>
-                        <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
-                          {new Date(note.updatedAt).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs line-clamp-2 text-gray-600 dark-amoled:text-gray-400">{preview || " "}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Main Content Area */}
-        <div className="flex-1 glass flex flex-col overflow-hidden">
+              {/* Main content */}
+              <div className="flex-1 flex flex-col overflow-hidden">
           {activePanel === "account" ? (
             <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
               <h2 className="text-xl font-semibold">Account Settings</h2>
@@ -845,6 +1094,8 @@ export default function App() {
             </div>
           )}
         </div>
+            </div>
+          )}
 
         {/* Modals */}
         <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} commands={commands} />
@@ -862,6 +1113,7 @@ export default function App() {
         <ExportImportModal
           isOpen={isExportImportOpen}
           onClose={() => setIsExportImportOpen(false)}
+          defaultTab={exportImportDefaultTab}
           notes={notes}
           notebooks={notebooks}
           tags={tags}
@@ -888,6 +1140,7 @@ export default function App() {
           </AlertDialogContent>
         </AlertDialog>
       </div>
+    </div>
     </div>
   );
 }
