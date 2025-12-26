@@ -264,7 +264,6 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
 
       if (notebookId) {
         const relRes = await supabase.from("object_relations").insert({
-          user_id: userId,
           parent_id: notebookId,
           child_id: noteId,
           relation_type: "contains",
@@ -314,7 +313,6 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       const delContains = await supabase
         .from("object_relations")
         .delete()
-        .eq("user_id", userId)
         .eq("child_id", updated.id)
         .eq("relation_type", "contains");
 
@@ -322,7 +320,7 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
 
       if (updated.notebookId) {
         const insContains = await supabase.from("object_relations").insert({
-          user_id: userId,
+
           parent_id: updated.notebookId,
           child_id: updated.id,
           relation_type: "contains",
@@ -334,7 +332,6 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       const delTags = await supabase
         .from("object_relations")
         .delete()
-        .eq("user_id", userId)
         .eq("parent_id", updated.id)
         .eq("relation_type", "tagged");
 
@@ -344,7 +341,6 @@ export function useZkNotes(userId: string | null, encryptionKey: CryptoKey | nul
       if (tagIds.length > 0) {
         const insTags = await supabase.from("object_relations").insert(
           tagIds.map((tagId) => ({
-            user_id: userId,
             parent_id: updated.id,
             child_id: tagId,
             relation_type: "tagged",
