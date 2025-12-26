@@ -74,6 +74,7 @@ import { createNoteFromTemplate } from "./lib/templates";
 import { type ImportResult } from "./lib/exportImport";
 import type { Note, Notebook as NotebookType, Tag as TagType, SearchFilters, AppPreferences, ThemeMode } from "./types/note";
 import { GraphView } from "./components/GraphView";
+import { GraphView3D } from "./components/GraphView3D";
 
 export default function App() {
   const [session, setSession] = useState<Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] | null>(null);
@@ -110,6 +111,7 @@ export default function App() {
   // Desktop layout state
   const [leftSection, setLeftSection] = useState<"folders" | "tags" | "calendar" | "templates" | "settings">("folders");
   const [topView, setTopView] = useState<"folder" | "graph">("folder");
+  const [graphMode, setGraphMode] = useState<"2d" | "3d">("2d");
   const [selectedDate, setSelectedDate] = useState<string>("");
 
   // Search & Filters
@@ -622,11 +624,11 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 dark-amoled:bg-black text-gray-900 dark-amoled:text-white transition-colors duration-300">
       <div className="flex h-screen overflow-hidden">
         {/* Left icon rail */}
-        <div className="w-14 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col items-center py-2 gap-1">
+        <div className="w-14 glass border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col items-center py-2 gap-1 gradient-bg">
           <Button
             variant="ghost"
             size="sm"
-            className="h-10 w-10 p-0"
+            className="h-10 w-10 p-0 hover-lift"
             title="New note"
             onClick={() => {
               setActivePanel("notes");
@@ -641,7 +643,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-10 w-10 p-0"
+            className="h-10 w-10 p-0 hover-lift"
             title="Add existing (import)"
             onClick={() => {
               setExportImportDefaultTab("import");
@@ -656,7 +658,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="sm"
-            className={`h-10 w-10 p-0 ${leftSection === "folders" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            className={`h-10 w-10 p-0 hover-lift ${leftSection === "folders" ? "bg-gray-100 dark-amoled:bg-gray-950 glow" : ""}`}
             title="Folders"
             onClick={() => {
               setActivePanel("notes");
@@ -670,7 +672,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="sm"
-            className={`h-10 w-10 p-0 ${leftSection === "tags" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            className={`h-10 w-10 p-0 hover-lift ${leftSection === "tags" ? "bg-gray-100 dark-amoled:bg-gray-950 glow" : ""}`}
             title="Tags"
             onClick={() => {
               setActivePanel("notes");
@@ -684,7 +686,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="sm"
-            className={`h-10 w-10 p-0 ${leftSection === "calendar" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+            className={`h-10 w-10 p-0 hover-lift ${leftSection === "calendar" ? "bg-gray-100 dark-amoled:bg-gray-950 glow" : ""}`}
             title="Calendar"
             onClick={() => {
               setActivePanel("notes");
@@ -698,7 +700,7 @@ export default function App() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-10 w-10 p-0"
+            className="h-10 w-10 p-0 hover-lift"
             title="Templates"
             onClick={() => {
               setActivePanel("notes");
@@ -714,7 +716,7 @@ export default function App() {
             <Button
               variant="ghost"
               size="sm"
-              className={`h-10 w-10 p-0 ${leftSection === "settings" ? "bg-gray-100 dark-amoled:bg-gray-950" : ""}`}
+              className={`h-10 w-10 p-0 hover-lift ${leftSection === "settings" ? "bg-gray-100 dark-amoled:bg-gray-950 glow" : ""}`}
               title="Settings"
               onClick={() => {
                 setLeftSection("settings");
@@ -725,7 +727,7 @@ export default function App() {
               <Settings className="h-5 w-5" />
             </Button>
 
-            <Button variant="ghost" size="sm" className="h-10 w-10 p-0" title="Toggle theme" onClick={cycleTheme}>
+            <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover-lift" title="Toggle theme" onClick={cycleTheme}>
               {theme === "dark-amoled" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
           </div>
@@ -733,7 +735,7 @@ export default function App() {
 
         {/* Side panel */}
         {isSidebarOpen && (
-          <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col">
+          <div className="w-64 glass border-r border-gray-200 dark-amoled:border-gray-900 p-3 flex flex-col animate-slide-down">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-semibold uppercase tracking-wide opacity-70">
                 {leftSection === "folders"
@@ -930,6 +932,27 @@ export default function App() {
                   <Network className="h-4 w-4 mr-2" />
                   Graph View
                 </Button>
+                {topView === "graph" && (
+                  <>
+                    <div className="mx-2 h-4 w-px bg-gray-200 dark-amoled:bg-gray-800" />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`${graphMode === "2d" ? "bg-blue-100 dark-amoled:bg-blue-950 text-blue-600" : ""}`}
+                      onClick={() => setGraphMode("2d")}
+                    >
+                      2D
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={`${graphMode === "3d" ? "bg-blue-100 dark-amoled:bg-blue-950 text-blue-600" : ""}`}
+                      onClick={() => setGraphMode("3d")}
+                    >
+                      3D
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <div className="text-sm font-medium">
@@ -968,22 +991,35 @@ export default function App() {
 
           {/* Content row */}
           {activePanel === "notes" && topView === "graph" ? (
-            <div className="flex-1 overflow-hidden">
-              <GraphView
-                notes={filteredNotes}
-                onOpenNote={(noteId) => {
-                  const n = notes.find((x) => x.id === noteId);
-                  if (n) {
-                    setSelectedNote(n);
-                    setTopView("folder");
-                  }
-                }}
-              />
+            <div className="flex-1 overflow-hidden animate-scale-in">
+              {graphMode === "2d" ? (
+                <GraphView
+                  notes={filteredNotes}
+                  onOpenNote={(noteId) => {
+                    const n = notes.find((x) => x.id === noteId);
+                    if (n) {
+                      setSelectedNote(n);
+                      setTopView("folder");
+                    }
+                  }}
+                />
+              ) : (
+                <GraphView3D
+                  notes={filteredNotes}
+                  onOpenNote={(noteId) => {
+                    const n = notes.find((x) => x.id === noteId);
+                    if (n) {
+                      setSelectedNote(n);
+                      setTopView("folder");
+                    }
+                  }}
+                />
+              )}
             </div>
           ) : (
             <div className="flex flex-1 overflow-hidden">
               {/* Notes List */}
-              <div className="w-80 border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col">
+              <div className="w-80 border-r border-gray-200 dark-amoled:border-gray-900 flex flex-col animate-fade-slide">
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                   {activePanel !== "notes" ? (
                     <div className="p-4 text-sm text-gray-600 dark-amoled:text-gray-400">
@@ -1002,8 +1038,8 @@ export default function App() {
                         return (
                           <button
                             key={note.id}
-                            className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-colors ${
-                              isSelected ? "bg-gray-100 dark-amoled:bg-gray-950" : ""
+                            className={`w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-all duration-200 ${
+                              isSelected ? "bg-gray-100 dark-amoled:bg-gray-950 border-l-2 border-blue-500" : ""
                             }`}
                             onClick={() => {
                               setSelectedNote(note);
@@ -1011,8 +1047,8 @@ export default function App() {
                           >
                             <div className="flex items-start justify-between gap-2 mb-1">
                               <div className="font-medium truncate flex items-center gap-2">
-                                {note.pinned && <Pin className="h-3 w-3 text-blue-500" />}
-                                {note.starred && <Star className="h-3 w-3 text-yellow-500" />}
+                                {note.pinned && <Pin className="h-3 w-3 text-blue-500 animate-pulse-slow" />}
+                                {note.starred && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}
                                 {title}
                               </div>
                               <div className="text-xs text-gray-500 dark-amoled:text-gray-400 whitespace-nowrap">
@@ -1176,14 +1212,18 @@ function NoteEditor({
   const [selectedTags, setSelectedTags] = useState<string[]>(note.tags || []);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<number | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-save with debounce
   useEffect(() => {
     if (title === note.title && content === note.content && selectedNotebook === note.notebookId) {
+      setHasUnsavedChanges(false);
       return;
     }
+
+    setHasUnsavedChanges(true);
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
@@ -1199,6 +1239,7 @@ function NoteEditor({
       }).then(() => {
         setIsSaving(false);
         setLastSaved(Date.now());
+        setHasUnsavedChanges(false);
       });
     }, 1000);
 
@@ -1206,6 +1247,23 @@ function NoteEditor({
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [title, content, selectedNotebook, selectedTags]);
+
+  const handleManualSave = () => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setIsSaving(true);
+    onSave({
+      ...note,
+      title: title.trim(),
+      content: content.trim(),
+      notebookId: selectedNotebook || undefined,
+      tags: selectedTags,
+      updatedAt: Date.now(),
+    }).then(() => {
+      setIsSaving(false);
+      setLastSaved(Date.now());
+      setHasUnsavedChanges(false);
+    });
+  };
 
   const handleTagInput = async (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && tagInput.trim()) {
@@ -1221,23 +1279,23 @@ function NoteEditor({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200 dark-amoled:border-gray-900">
+    <div className="flex flex-col h-full animate-scale-in">
+      <div className="p-4 border-b border-gray-200 dark-amoled:border-gray-900 glass">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <button
               onClick={onTogglePinned}
-              className={`p-2 rounded-md hover:bg-gray-100 dark-amoled:hover:bg-gray-900 ${note.pinned ? "text-blue-500" : ""}`}
+              className={`p-2 rounded-md hover:bg-gray-100 dark-amoled:hover:bg-gray-900 transition-all ${note.pinned ? "text-blue-500 glow" : ""}`}
               title="Pin note"
             >
               <Pin className="h-4 w-4" />
             </button>
             <button
               onClick={onToggleStarred}
-              className={`p-2 rounded-md hover:bg-gray-100 dark-amoled:hover:bg-gray-900 ${note.starred ? "text-yellow-500" : ""}`}
+              className={`p-2 rounded-md hover:bg-gray-100 dark-amoled:hover:bg-gray-900 transition-all ${note.starred ? "text-yellow-500 glow" : ""}`}
               title="Star note"
             >
-              <Star className="h-4 w-4" />
+              <Star className={`h-4 w-4 ${note.starred ? "fill-yellow-500" : ""}`} />
             </button>
             <button
               onClick={onToggleArchived}
@@ -1249,14 +1307,29 @@ function NoteEditor({
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500 dark-amoled:text-gray-400">
             {isSaving ? (
-              <span>Saving...</span>
+              <span className="flex items-center gap-1 animate-pulse-slow">
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                Saving...
+              </span>
             ) : lastSaved ? (
-              <span>Saved {new Date(lastSaved).toLocaleTimeString()}</span>
+              <span className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                Saved {new Date(lastSaved).toLocaleTimeString()}
+              </span>
             ) : null}
-            <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700">
+            {hasUnsavedChanges && !isSaving && (
+              <Button 
+                onClick={handleManualSave} 
+                size="sm" 
+                className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white glow"
+              >
+                Save Now
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 h-7 px-2">
               <Trash2 className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={onCancel}>
+            <Button variant="ghost" size="sm" onClick={onCancel} className="h-7 px-2">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -1266,14 +1339,14 @@ function NoteEditor({
           placeholder="Note title..."
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="text-xl font-semibold border-none focus-visible:ring-0 bg-transparent px-0"
+          className="text-xl font-semibold border-none focus-visible:ring-0 bg-transparent px-0 placeholder:text-gray-400"
         />
 
         <div className="flex flex-wrap gap-4 mt-3">
           <select
             value={selectedNotebook}
             onChange={(e) => setSelectedNotebook(e.target.value)}
-            className="px-3 py-2 rounded-md text-sm bg-gray-100 dark-amoled:bg-gray-900 border border-gray-200 dark-amoled:border-gray-800"
+            className="px-3 py-2 rounded-md text-sm glass border border-gray-200 dark-amoled:border-gray-800 hover-lift cursor-pointer"
           >
             <option value="">All Notes</option>
             {notebooks.map((notebook) => (
@@ -1287,23 +1360,23 @@ function NoteEditor({
 
       <div className="flex-1 p-4 overflow-y-auto custom-scrollbar">
         <Textarea
-          placeholder="Start writing your note..."
+          placeholder="Start writing your note... Use [[Note Title]] to link notes"
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          className="h-full resize-none border-none focus-visible:ring-0 bg-transparent"
+          className="h-full resize-none border-none focus-visible:ring-0 bg-transparent placeholder:text-gray-400"
         />
       </div>
 
-      <div className="p-4 border-t border-gray-200 dark-amoled:border-gray-900">
+      <div className="p-4 border-t border-gray-200 dark-amoled:border-gray-900 glass">
         <div className="mb-3">
           <label className="text-sm font-medium mb-2 block">Tags</label>
           <div className="flex flex-wrap gap-2 mb-2">
             {selectedTags.map((tagId) => {
               const tag = tags.find((t) => t.id === tagId);
               return tag ? (
-                <div key={tag.id} className="px-2 py-1 rounded-full text-xs flex items-center space-x-1 bg-blue-100 dark-amoled:bg-blue-950 text-blue-800 dark-amoled:text-blue-200">
+                <div key={tag.id} className="px-3 py-1 rounded-full text-xs flex items-center space-x-1 bg-blue-100 dark-amoled:bg-blue-950 text-blue-800 dark-amoled:text-blue-200 hover-lift cursor-pointer">
                   <span>#{tag.name}</span>
-                  <button onClick={() => removeTag(tag.id)} className="hover:opacity-70">
+                  <button onClick={() => removeTag(tag.id)} className="hover:opacity-70 ml-1">
                     <X className="h-3 w-3" />
                   </button>
                 </div>
@@ -1315,7 +1388,7 @@ function NoteEditor({
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={handleTagInput}
-            className="bg-gray-100 dark-amoled:bg-gray-900"
+            className="glass"
           />
         </div>
       </div>

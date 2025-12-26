@@ -1,4 +1,4 @@
-/// <reference types="vite/client" />
+/// <reference types="@react-three/fiber" />
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -14,3 +14,5 @@ declare global {
     }
   }
 }
+
+export {};
