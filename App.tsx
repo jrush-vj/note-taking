@@ -92,27 +92,10 @@ export default function App() {
   const encryptionReady = useMemo(() => Boolean(userId && encryptionKey), [encryptionKey, userId]);
 
   const accessToken = session?.access_token ?? null;
-  const { notes: dbNotes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook, reload } =
+  const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook, reload } =
     useZkNotes(userId, encryptionKey, accessToken);
 
-  // Local notes state for instant UI updates
-  const [localNotes, setLocalNotes] = useState<Note[]>([]);
   const [draggedNote, setDraggedNote] = useState<string | null>(null);
-
-  // Sync local notes with DB notes
-  useEffect(() => {
-    setLocalNotes(dbNotes);
-  }, [dbNotes]);
-
-  // Use local notes for UI, fallback to DB notes
-  const notes = localNotes.length > 0 ? localNotes : dbNotes;
-
-  // Optimistic note update (instant UI, save in background)
-  const updateNoteOptimistic = useCallback((noteId: string, updates: Partial<Note>) => {
-    setLocalNotes(prev => prev.map(n => 
-      n.id === noteId ? { ...n, ...updates, updatedAt: Date.now() } : n
-    ));
-  }, []);
 
   // UI State
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -367,43 +350,16 @@ export default function App() {
 
   const handleCreateNote = async (templateNote?: Note) => {
     try {
-      // Create optimistic note immediately
-      const tempId = `temp-${Date.now()}`;
-      const optimisticNote: Note = templateNote ? {
-        ...createNoteFromTemplate(templateNote, userEmail ?? undefined),
-        id: tempId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      } : {
-        id: tempId,
-        title: "",
-        content: "",
-        notebookId: selectedNotebook || undefined,
-        tags: [],
-        pinned: false,
-        starred: false,
-        archived: false,
-        isTemplate: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      // Show note immediately
-      setSelectedNote(optimisticNote);
-      setActivePanel("notes");
-
-      // Create in background
-      let realNote: Note;
+      let newNote: Note;
       if (templateNote) {
         const created = createNoteFromTemplate(templateNote, userEmail ?? undefined);
-        realNote = await addNote(created.notebookId);
-        await updateNote(realNote.id, { ...realNote, ...created });
+        newNote = await addNote(created.notebookId);
+        await updateNote(newNote.id, { ...newNote, ...created });
       } else {
-        realNote = await addNote(selectedNotebook || undefined);
+        newNote = await addNote(selectedNotebook || undefined);
       }
-
-      // Replace optimistic note with real one
-      setSelectedNote(realNote);
+      setSelectedNote(newNote);
+      setActivePanel("notes");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create note";
       setAuthError(msg);
@@ -419,19 +375,11 @@ export default function App() {
 
   const handleSaveNote = async (updatedNote: Note) => {
     try {
-      // Update immediately in local state (instant UI)
-      setLocalNotes(prev => prev.map(n => 
-        n.id === updatedNote.id ? updatedNote : n
-      ));
-      setSelectedNote(updatedNote);
-      
-      // Save to DB in background
       await updateNote(updatedNote.id, updatedNote);
+      setSelectedNote(updatedNote);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save note";
       setAuthError(msg);
-      // Revert on error
-      setLocalNotes(dbNotes);
     }
   };
 
@@ -511,17 +459,10 @@ export default function App() {
     const note = notes.find(n => n.id === draggedNote);
     if (!note) return;
 
-    // Update immediately (optimistic)
-    setLocalNotes(prev => prev.map(n => 
-      n.id === draggedNote ? { ...n, notebookId: notebookId || undefined } : n
-    ));
-    
-    // Save in background
     try {
       await updateNote(draggedNote, { ...note, notebookId: notebookId || undefined });
     } catch (e) {
       console.error('Failed to move note:', e);
-      setLocalNotes(dbNotes);
     }
     
     setDraggedNote(null);
@@ -1315,7 +1256,6 @@ export default function App() {
               tags={tags}
               allNotes={notes}
               onSave={handleSaveNote}
-              onOptimisticUpdate={updateNoteOptimistic}
               onTogglePinned={() => handleTogglePinned(selectedNoteFull)}
               onToggleStarred={() => handleToggleStarred(selectedNoteFull)}
               onToggleArchived={() => handleToggleArchived(selectedNoteFull)}
@@ -1407,7 +1347,6 @@ function NoteEditor({
   tags,
   allNotes,
   onSave,
-  onOptimisticUpdate,
   onTogglePinned,
   onToggleStarred,
   onToggleArchived,
@@ -1422,7 +1361,6 @@ function NoteEditor({
   tags: TagType[];
   allNotes: Note[];
   onSave: (note: Note) => Promise<void>;
-  onOptimisticUpdate: (noteId: string, updates: Partial<Note>) => void;
   onTogglePinned: () => void;
   onToggleStarred: () => void;
   onToggleArchived: () => void;
@@ -1438,84 +1376,9 @@ function NoteEditor({
   const [tagInput, setTagInput] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>(note.tags || []);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<number | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
 
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const titleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Instant title update (no debounce for real-time folder view)
-  useEffect(() => {
-    if (title === note.title) return;
-
-    // Update immediately in UI
-    onOptimisticUpdate(note.id, { title: title.trim() || "Untitled" });
-    setHasUnsavedChanges(true);
-
-    if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
-
-    titleTimeoutRef.current = setTimeout(() => {
-      onSave({
-        ...note,
-        title: title.trim() || "Untitled",
-        content,
-        notebookId: selectedNotebook || undefined,
-        tags: selectedTags,
-        updatedAt: Date.now(),
-      });
-    }, 500); // 500ms for background save
-
-    return () => {
-      if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
-    };
-  }, [title]);
-
-  // Auto-save content with instant preview update
-  useEffect(() => {
-    if (content === note.content && selectedNotebook === note.notebookId && JSON.stringify(selectedTags) === JSON.stringify(note.tags)) {
-      setHasUnsavedChanges(false);
-      return;
-    }
-
-    // Update preview immediately
-    onOptimisticUpdate(note.id, { content: content.trim() });
-    setHasUnsavedChanges(true);
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
-    saveTimeoutRef.current = setTimeout(() => {
-      setIsSaving(true);
-      
-      // Check for wiki-link auto-creation
-      const wikiLinks = extractWikiLinks(content);
-      wikiLinks.forEach(async (link) => {
-        const exists = allNotes.find(n => n.title.toLowerCase() === link.title.toLowerCase());
-        if (!exists) {
-          // Auto-create note
-          await onCreateNote(link.title);
-        }
-      });
-      
-      onSave({
-        ...note,
-        title: title.trim() || "Untitled",
-        content: content.trim(),
-        notebookId: selectedNotebook || undefined,
-        tags: selectedTags,
-        updatedAt: Date.now(),
-      }).then(() => {
-        setIsSaving(false);
-        setLastSaved(Date.now());
-        setHasUnsavedChanges(false);
-      });
-    }, 1000); // 1000ms for content
-
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [content, selectedNotebook, selectedTags]);
 
   // Detect Ctrl/Cmd key press for wiki-link activation
   useEffect(() => {
@@ -1537,22 +1400,30 @@ function NoteEditor({
     };
   }, []);
 
-  const handleManualSave = () => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
+  const handleSaveClick = async () => {
     setIsSaving(true);
-    onSave({
-      ...note,
-      title: title.trim() || "Untitled",
-      content: content.trim(),
-      notebookId: selectedNotebook || undefined,
-      tags: selectedTags,
-      updatedAt: Date.now(),
-    }).then(() => {
+    
+    // Check for wiki-link auto-creation
+    const wikiLinks = extractWikiLinks(content);
+    for (const link of wikiLinks) {
+      const exists = allNotes.find(n => n.title.toLowerCase() === link.title.toLowerCase());
+      if (!exists) {
+        await onCreateNote(link.title);
+      }
+    }
+    
+    try {
+      await onSave({
+        ...note,
+        title: title.trim() || "Untitled",
+        content: content.trim(),
+        notebookId: selectedNotebook || undefined,
+        tags: selectedTags,
+        updatedAt: Date.now(),
+      });
+    } finally {
       setIsSaving(false);
-      setLastSaved(Date.now());
-      setHasUnsavedChanges(false);
-    });
+    }
   };
 
   const handleTagInput = async (e: React.KeyboardEvent) => {
@@ -1635,21 +1506,15 @@ function NoteEditor({
                 <span className="h-2 w-2 rounded-full bg-blue-500" />
                 Saving...
               </span>
-            ) : lastSaved ? (
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
-                Saved {new Date(lastSaved).toLocaleTimeString()}
-              </span>
             ) : null}
-            {hasUnsavedChanges && !isSaving && (
-              <Button 
-                onClick={handleManualSave} 
-                size="sm" 
-                className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white glow"
-              >
-                Save Now
-              </Button>
-            )}
+            <Button 
+              onClick={handleSaveClick} 
+              size="sm" 
+              className="h-7 px-3 bg-blue-600 hover:bg-blue-700 text-white glow"
+              disabled={isSaving}
+            >
+              Save
+            </Button>
             <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700 h-7 px-2">
               <Trash2 className="h-4 w-4" />
             </Button>
