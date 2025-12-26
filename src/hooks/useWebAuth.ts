@@ -11,6 +11,7 @@ import {
   encryptMasterKey,
   generateMasterKeyBase64,
   generateSaltBase64,
+  importAesKeyFromBase64,
 } from "../lib/crypto";
 import type { Session, User } from "@supabase/supabase-js";
 
@@ -156,7 +157,7 @@ export function useWebAuth(): AuthState {
         const newSaltBase64 = generateSaltBase64();
         const passphraseKey = await deriveKeyFromPassphrase(passphrase, newSaltBase64);
         const masterKeyBase64 = generateMasterKeyBase64();
-        const newEncryptedMasterKey = await encryptMasterKey(masterKeyBase64, passphraseKey);
+        const newEncryptedMasterKey = await encryptMasterKey(passphraseKey, masterKeyBase64);
 
         // Store in database
         const { error } = await supabase.from("user_keys").insert({
@@ -170,8 +171,8 @@ export function useWebAuth(): AuthState {
           return;
         }
 
-        // Decrypt and set the master key
-        const masterKey = await decryptMasterKey(newEncryptedMasterKey, passphraseKey);
+        // Import and set the master key
+        const masterKey = await importAesKeyFromBase64(masterKeyBase64);
 
         setSaltBase64(newSaltBase64);
         setEncryptedMasterKey(newEncryptedMasterKey);
@@ -198,7 +199,8 @@ export function useWebAuth(): AuthState {
 
       try {
         const passphraseKey = await deriveKeyFromPassphrase(passphrase, saltBase64);
-        const masterKey = await decryptMasterKey(encryptedMasterKey, passphraseKey);
+        const masterKeyBase64 = await decryptMasterKey(passphraseKey, encryptedMasterKey);
+        const masterKey = await importAesKeyFromBase64(masterKeyBase64);
         setEncryptionKey(masterKey);
       } catch (err) {
         setAuthError("Incorrect passphrase. Please try again.");
