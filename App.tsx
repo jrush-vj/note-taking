@@ -92,8 +92,27 @@ export default function App() {
   const encryptionReady = useMemo(() => Boolean(userId && encryptionKey), [encryptionKey, userId]);
 
   const accessToken = session?.access_token ?? null;
-  const { notes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook } =
+  const { notes: dbNotes, notebooks, tags, addNote, addNotebook, addTag, updateNote, deleteNote, deleteNotebook, reload } =
     useZkNotes(userId, encryptionKey, accessToken);
+
+  // Local notes state for instant UI updates
+  const [localNotes, setLocalNotes] = useState<Note[]>([]);
+  const [draggedNote, setDraggedNote] = useState<string | null>(null);
+
+  // Sync local notes with DB notes
+  useEffect(() => {
+    setLocalNotes(dbNotes);
+  }, [dbNotes]);
+
+  // Use local notes for UI, fallback to DB notes
+  const notes = localNotes.length > 0 ? localNotes : dbNotes;
+
+  // Optimistic note update (instant UI, save in background)
+  const updateNoteOptimistic = useCallback((noteId: string, updates: Partial<Note>) => {
+    setLocalNotes(prev => prev.map(n => 
+      n.id === noteId ? { ...n, ...updates, updatedAt: Date.now() } : n
+    ));
+  }, []);
 
   // UI State
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
@@ -400,11 +419,19 @@ export default function App() {
 
   const handleSaveNote = async (updatedNote: Note) => {
     try {
-      await updateNote(updatedNote.id, updatedNote);
+      // Update immediately in local state (instant UI)
+      setLocalNotes(prev => prev.map(n => 
+        n.id === updatedNote.id ? updatedNote : n
+      ));
       setSelectedNote(updatedNote);
+      
+      // Save to DB in background
+      await updateNote(updatedNote.id, updatedNote);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save note";
       setAuthError(msg);
+      // Revert on error
+      setLocalNotes(dbNotes);
     }
   };
 
@@ -467,6 +494,41 @@ export default function App() {
       newSet.add(noteId);
     }
     setSelectedNoteIds(newSet);
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (noteId: string) => {
+    setDraggedNote(noteId);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDropOnNotebook = async (notebookId: string | null) => {
+    if (!draggedNote) return;
+    
+    const note = notes.find(n => n.id === draggedNote);
+    if (!note) return;
+
+    // Update immediately (optimistic)
+    setLocalNotes(prev => prev.map(n => 
+      n.id === draggedNote ? { ...n, notebookId: notebookId || undefined } : n
+    ));
+    
+    // Save in background
+    try {
+      await updateNote(draggedNote, { ...note, notebookId: notebookId || undefined });
+    } catch (e) {
+      console.error('Failed to move note:', e);
+      setLocalNotes(dbNotes);
+    }
+    
+    setDraggedNote(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedNote(null);
   };
 
   const handleImport = async (result: ImportResult) => {
@@ -813,7 +875,7 @@ export default function App() {
                     !selectedNotebook && activePanel === "notes"
                       ? "bg-blue-100 dark-amoled:bg-blue-950"
                       : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                  }`}
+                  } ${draggedNote ? "border-2 border-dashed border-blue-400" : ""}`}
                   onClick={() => {
                     setActivePanel("notes");
                     setSelectedNotebook(null);
@@ -821,6 +883,8 @@ export default function App() {
                     setSelectedDate("");
                     setSearchFilters((prev) => ({ ...prev, archived: false }));
                   }}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDropOnNotebook(null)}
                 >
                   <Notebook className="h-4 w-4" />
                   <span>All Notes</span>
@@ -833,13 +897,15 @@ export default function App() {
                         selectedNotebook === notebook.id && activePanel === "notes"
                           ? "bg-blue-100 dark-amoled:bg-blue-950"
                           : "hover:bg-gray-100 dark-amoled:hover:bg-gray-900"
-                      }`}
+                      } ${draggedNote ? "border-2 border-dashed border-blue-400" : ""}`}
                       onClick={() => {
                         setActivePanel("notes");
                         setSelectedNotebook(notebook.id);
                         setSelectedTag(null);
                         setSelectedDate("");
                       }}
+                      onDragOver={handleDragOver}
+                      onDrop={() => handleDropOnNotebook(notebook.id)}
                     >
                       <Notebook className="h-4 w-4" />
                       <span className="truncate">{notebook.name}</span>
@@ -1133,10 +1199,15 @@ export default function App() {
                         return (
                           <div
                             key={note.id}
-                            className={`relative group w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-all duration-200 ${
+                            draggable={!isMultiSelectMode}
+                            onDragStart={() => handleDragStart(note.id)}
+                            onDragEnd={handleDragEnd}
+                            className={`relative group w-full text-left p-3 hover:bg-gray-50 dark-amoled:hover:bg-gray-950 transition-all duration-200 cursor-move ${
                               isSelected ? "bg-gray-100 dark-amoled:bg-gray-950 border-l-2 border-blue-500" : ""
                             } ${
                               isChecked ? "bg-blue-50 dark-amoled:bg-blue-950/50" : ""
+                            } ${
+                              draggedNote === note.id ? "opacity-50" : ""
                             }`}
                           >
                             <div className="flex items-start gap-2">
@@ -1244,6 +1315,7 @@ export default function App() {
               tags={tags}
               allNotes={notes}
               onSave={handleSaveNote}
+              onOptimisticUpdate={updateNoteOptimistic}
               onTogglePinned={() => handleTogglePinned(selectedNoteFull)}
               onToggleStarred={() => handleToggleStarred(selectedNoteFull)}
               onToggleArchived={() => handleToggleArchived(selectedNoteFull)}
@@ -1253,6 +1325,16 @@ export default function App() {
                 const targetNote = notes.find((n) => n.id === noteId);
                 if (targetNote) {
                   setSelectedNote(targetNote);
+                }
+              }}
+              onCreateNote={async (title: string) => {
+                try {
+                  const newNote = await addNote(selectedNoteFull.notebookId);
+                  await updateNote(newNote.id, { ...newNote, title, content: "" });
+                  return newNote.id;
+                } catch (e) {
+                  console.error('Failed to create note:', e);
+                  return null;
                 }
               }}
               addTag={addTag}
@@ -1325,12 +1407,14 @@ function NoteEditor({
   tags,
   allNotes,
   onSave,
+  onOptimisticUpdate,
   onTogglePinned,
   onToggleStarred,
   onToggleArchived,
   onDelete,
   onCancel,
   onNavigateToNote,
+  onCreateNote,
   addTag,
 }: {
   note: Note;
@@ -1338,12 +1422,14 @@ function NoteEditor({
   tags: TagType[];
   allNotes: Note[];
   onSave: (note: Note) => Promise<void>;
+  onOptimisticUpdate: (noteId: string, updates: Partial<Note>) => void;
   onTogglePinned: () => void;
   onToggleStarred: () => void;
   onToggleArchived: () => void;
   onDelete: () => void;
   onCancel: () => void;
   onNavigateToNote: (noteId: string) => void;
+  onCreateNote: (title: string) => Promise<string | null>;
   addTag: (name: string) => Promise<string>;
 }) {
   const [title, setTitle] = useState(note.title);
@@ -1360,10 +1446,12 @@ function NoteEditor({
   const titleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fast title save (300ms debounce for instant feedback)
+  // Instant title update (no debounce for real-time folder view)
   useEffect(() => {
     if (title === note.title) return;
 
+    // Update immediately in UI
+    onOptimisticUpdate(note.id, { title: title.trim() || "Untitled" });
     setHasUnsavedChanges(true);
 
     if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
@@ -1377,26 +1465,39 @@ function NoteEditor({
         tags: selectedTags,
         updatedAt: Date.now(),
       });
-    }, 300); // 300ms for title
+    }, 500); // 500ms for background save
 
     return () => {
       if (titleTimeoutRef.current) clearTimeout(titleTimeoutRef.current);
     };
   }, [title]);
 
-  // Auto-save content with standard debounce
+  // Auto-save content with instant preview update
   useEffect(() => {
     if (content === note.content && selectedNotebook === note.notebookId && JSON.stringify(selectedTags) === JSON.stringify(note.tags)) {
       setHasUnsavedChanges(false);
       return;
     }
 
+    // Update preview immediately
+    onOptimisticUpdate(note.id, { content: content.trim() });
     setHasUnsavedChanges(true);
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     saveTimeoutRef.current = setTimeout(() => {
       setIsSaving(true);
+      
+      // Check for wiki-link auto-creation
+      const wikiLinks = extractWikiLinks(content);
+      wikiLinks.forEach(async (link) => {
+        const exists = allNotes.find(n => n.title.toLowerCase() === link.title.toLowerCase());
+        if (!exists) {
+          // Auto-create note
+          await onCreateNote(link.title);
+        }
+      });
+      
       onSave({
         ...note,
         title: title.trim() || "Untitled",
@@ -1409,7 +1510,7 @@ function NoteEditor({
         setLastSaved(Date.now());
         setHasUnsavedChanges(false);
       });
-    }, 800); // 800ms for content
+    }, 1000); // 1000ms for content
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
