@@ -25,6 +25,7 @@ export interface AuthState {
   // Encryption state
   encryptionKey: CryptoKey | null;
   needsEncryptionSetup: boolean;
+  needsUnlock: boolean;
   saltBase64: string | null;
   encryptedMasterKey: string | null;
   
@@ -51,8 +52,11 @@ export function useWebAuth(): AuthState {
   const userEmail = session?.user?.email ?? null;
   const accessToken = session?.access_token ?? null;
 
-  // Determine if user needs to set up encryption
-  const needsEncryptionSetup = Boolean(userId && saltBase64 && encryptedMasterKey && !encryptionKey);
+  // Determine auth state:
+  // - needsEncryptionSetup: user signed in but has no encryption keys in DB (first time)
+  // - needsUnlock: user has keys but hasn't unlocked with passphrase yet
+  const needsEncryptionSetup = Boolean(userId && !saltBase64 && !encryptedMasterKey);
+  const needsUnlock = Boolean(userId && saltBase64 && encryptedMasterKey && !encryptionKey);
 
   // Initialize session
   useEffect(() => {
@@ -236,6 +240,7 @@ export function useWebAuth(): AuthState {
     accessToken,
     encryptionKey,
     needsEncryptionSetup,
+    needsUnlock,
     saltBase64,
     encryptedMasterKey,
     isLoading,

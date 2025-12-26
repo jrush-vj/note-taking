@@ -30,22 +30,42 @@ function WebAppWrapper() {
       <AuthScreen
         onGoogleSignIn={auth.signInWithGoogle}
         onSetupEncryption={auth.setupEncryption}
+        onUnlockWithPassphrase={auth.unlockWithPassphrase}
         needsEncryptionSetup={false}
+        needsUnlock={false}
         authError={auth.authError}
         isLoading={auth.isLoading}
       />
     );
   }
 
-  // Show encryption setup screen if needed
+  // Show encryption setup screen for first-time users
   if (auth.needsEncryptionSetup) {
     return (
       <AuthScreen
         onGoogleSignIn={auth.signInWithGoogle}
         onSetupEncryption={auth.setupEncryption}
+        onUnlockWithPassphrase={auth.unlockWithPassphrase}
         needsEncryptionSetup={true}
+        needsUnlock={false}
         authError={auth.authError}
         isLoading={auth.isLoading}
+      />
+    );
+  }
+
+  // Show unlock screen for returning users
+  if (auth.needsUnlock) {
+    return (
+      <AuthScreen
+        onGoogleSignIn={auth.signInWithGoogle}
+        onSetupEncryption={auth.setupEncryption}
+        onUnlockWithPassphrase={auth.unlockWithPassphrase}
+        needsEncryptionSetup={false}
+        needsUnlock={true}
+        authError={auth.authError}
+        isLoading={auth.isLoading}
+        userEmail={auth.userEmail}
       />
     );
   }

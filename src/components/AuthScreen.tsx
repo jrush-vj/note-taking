@@ -11,17 +11,23 @@ import { Shield, Sparkles, Lock, FileText, Search, Zap } from "lucide-react";
 interface AuthScreenProps {
   onGoogleSignIn: () => Promise<void>;
   onSetupEncryption: (passphrase: string) => Promise<void>;
+  onUnlockWithPassphrase: (passphrase: string) => Promise<void>;
   needsEncryptionSetup: boolean;
+  needsUnlock: boolean;
   authError: string | null;
   isLoading: boolean;
+  userEmail?: string | null;
 }
 
 export function AuthScreen({
   onGoogleSignIn,
   onSetupEncryption,
+  onUnlockWithPassphrase,
   needsEncryptionSetup,
+  needsUnlock,
   authError,
   isLoading,
+  userEmail,
 }: AuthScreenProps) {
   const [passphrase, setPassphrase] = useState("");
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
@@ -40,6 +46,75 @@ export function AuthScreen({
     await onSetupEncryption(passphrase);
   };
 
+  const handleUnlock = async () => {
+    if (!passphrase) {
+      setError("Please enter your passphrase");
+      return;
+    }
+    setError(null);
+    await onUnlockWithPassphrase(passphrase);
+  };
+
+  // Unlock screen for returning users
+  if (needsUnlock) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 dark-amoled:from-gray-950 dark-amoled:via-black dark-amoled:to-blue-950 p-4">
+        <div className="w-full max-w-md">
+          <div className="glass-strong rounded-2xl p-8 shadow-2xl">
+            <div className="flex items-center justify-center mb-6">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center">
+                <Lock className="h-8 w-8 text-white" />
+              </div>
+            </div>
+
+            <h1 className="text-2xl font-bold text-center mb-2">Welcome Back!</h1>
+            <p className="text-sm text-gray-600 dark-amoled:text-gray-400 text-center mb-6">
+              {userEmail && <span className="font-medium">{userEmail}</span>}
+              {userEmail && <br />}
+              Enter your passphrase to unlock your encrypted notes
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Passphrase</label>
+                <Input
+                  type="password"
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleUnlock()}
+                  placeholder="Enter your passphrase"
+                  className="w-full"
+                  autoFocus
+                />
+              </div>
+
+              {(error || authError) && (
+                <div className="p-3 bg-red-50 dark-amoled:bg-red-900/20 border border-red-200 dark-amoled:border-red-800 rounded-lg text-red-700 dark-amoled:text-red-300 text-sm">
+                  {error || authError}
+                </div>
+              )}
+
+              <Button onClick={handleUnlock} disabled={isLoading} className="w-full">
+                {isLoading ? "Unlocking..." : "Unlock"}
+              </Button>
+
+              <div className="p-4 bg-blue-50 dark-amoled:bg-blue-900/20 rounded-lg border border-blue-200 dark-amoled:border-blue-800">
+                <div className="flex items-start gap-3">
+                  <Shield className="h-5 w-5 text-blue-600 dark-amoled:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-800 dark-amoled:text-blue-300">
+                    <strong>Secure:</strong> Your passphrase is never sent to our servers. 
+                    All decryption happens locally in your browser.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Setup encryption screen for first-time users
   if (needsEncryptionSetup) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 dark-amoled:from-gray-950 dark-amoled:via-black dark-amoled:to-blue-950 p-4">
